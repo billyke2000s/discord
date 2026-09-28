@@ -32,6 +32,7 @@ pause() { read -r -p "  Press Enter to continue..." _ </dev/tty; }
 is_id() { [[ "$1" =~ ^[0-9]{17,20}$ ]]; }
 # curl that retries on network hiccups / 429 / 5xx instead of failing or hanging
 CURL=(curl --retry 3 --retry-delay 3 --retry-connrefused --connect-timeout 15)
+DISCORD_API="https://discord.com/api/v10"
 envget() { [ -f "$INSTALL_DIR/.env" ] && grep -E "^$1=" "$INSTALL_DIR/.env" | tail -1 | cut -d= -f2- || true; }
 
 [ "$(id -u)" -eq 0 ] || die "Run this as root (log in as root, or use: sudo bash install.sh)"
