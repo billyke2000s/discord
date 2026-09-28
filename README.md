@@ -105,7 +105,7 @@ The installer:
 
 ---
 
-## Publishing (for whoever owns this repo)
+## Publishing and that 
 
 Every push to `main` makes GitHub Actions (`.github/workflows/release.yml`):
 
