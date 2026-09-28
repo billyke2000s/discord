@@ -1,0 +1,64 @@
+# Every push to main: GitHub builds the bot's ready-made image (for normal and ARM servers), publishes it to
+# this repo's package page, then builds install.sh pointing at that exact image and attaches it to a new Release.
+name: Build and release
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the Release with install.sh
+  packages: write   # publish the image to ghcr.io
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name (ghcr.io/<owner>/<repo>, lowercase)
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the bot image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build install.sh (pinned to the exact image just built)
+        run: bash scripts/build-installer.sh "${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}" dist/install.sh
+
+      - name: Check install.sh
+        run: bash -n dist/install.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}"
+          gh release create "$tag" dist/install.sh \
+            --title "$tag" \
+            --notes "Download **install.sh**, upload it to /root on your VPS and run: \`bash install.sh\`" \
+            --latest
