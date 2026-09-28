@@ -1,0 +1,89 @@
+# Runs Lavalink + the YouTube cipher helper + the bot, all on this VPS.
+# Normally started by install.sh. Manual start:  docker compose up -d --build
+# None of these containers publish a port: nothing here is reachable from the internet.
+
+# Each container keeps at most 3 log files of 10 MB; older logs are deleted, so logs can't fill the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4.2.2-alpine   # pinned: a tested version, not whatever is newest
+    container_name: lavalink
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      # Java memory settings. install.sh picks these by server size (LOW_MEMORY in .env).
+      - JAVA_TOOL_OPTIONS=${LAVALINK_JAVA_OPTS:--Xmx384m -XX:+UseSerialGC -Xss512k}
+      - LAVALINK_PASSWORD=${LAVALINK_PASSWORD}
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_PASSWORD}
+      # Read by lavalink/application.yml
+      - YOUTUBE_OAUTH=${YOUTUBE_OAUTH:-false}
+      - YOUTUBE_REFRESH_TOKEN=${YOUTUBE_REFRESH_TOKEN:-}
+      - CIPHER_TOKEN=${CIPHER_TOKEN:-}
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      - ./lavalink/plugins:/opt/Lavalink/plugins   # patched YouTube plugin (see install.sh)
+    depends_on:
+      - yt-cipher
+    networks: [botnet]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --header=\"Authorization: $$LAVALINK_PASSWORD\" http://localhost:2333/version || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: ${LAVALINK_MEM_LIMIT:-768m}
+
+  # Decodes YouTube's scrambled stream links for the YouTube plugin (self-hosted, no outside service).
+  # Uses the author's official ready-made image (pinned exact version, set in .env by install.sh).
+  # Fallback: install.sh downloads the pinned source into ./yt-cipher and builds it here.
+  yt-cipher:
+    image: ${CIPHER_IMAGE:-server-bot-cipher-local:latest}
+    build: ./yt-cipher
+    container_name: yt-cipher
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      - OVERRIDE_PLAYER_VARIANT=IAS
+      - API_TOKEN=${CIPHER_TOKEN:-}
+      # keep it small: one worker, a small script cache, one cache for all regions
+      - MAX_THREADS=1
+      - PREPROCESSED_CACHE_SIZE=${CIPHER_CACHE_SIZE:-50}
+      - IGNORE_SCRIPT_REGION=true
+    networks: [botnet]
+    mem_limit: 384m
+
+  # The bot. Normally a ready-made image built by this repo's GitHub Actions (exact version set in .env by
+  # install.sh); if that can't be downloaded, install.sh builds it here from this folder.
+  bot:
+    image: ${BOT_IMAGE:-server-bot-local:latest}
+    build: .
+    container_name: discord-bot
+    restart: unless-stopped
+    logging: *logging
+    env_file: .env
+    environment:
+      - LAVALINK_HOST=lavalink
+      - LAVALINK_PORT=2333
+      - DATA_DIR=/app/data
+      - LOCK_DIR=/app/locks
+      - BACKUP_DIR=/app/backups
+    volumes:
+      - botdata:/app/data       # SQLite database lives here, survives rebuilds
+      - ./locks:/app/locks      # second copy of the /setup rebuild lock, a plain folder on the VPS
+      - ./backups:/app/backups  # daily database backups, a plain folder on the VPS
+    depends_on:
+      lavalink:
+        condition: service_healthy
+    networks: [botnet]
+    mem_limit: 384m
+
+networks:
+  botnet:
+
+volumes:
+  botdata:

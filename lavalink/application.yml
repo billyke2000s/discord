@@ -1,0 +1,84 @@
+# Lavalink v4 config. Secrets are NOT stored here: ${...} values come from .env (via docker-compose.yml).
+# Port 2333 is not published to the internet. Keep it that way.
+server:
+  port: 2333
+  address: 0.0.0.0
+  http2:
+    enabled: false
+
+lavalink:
+  # The YouTube plugin (patched TV client) is put in ./lavalink/plugins by install.sh (downloaded +
+  # checksum-checked there), so Lavalink never downloads anything itself.
+  # Spotify links don't need anything here: the bot reads them itself (src/lib/spotify.js).
+  plugins: []
+  server:
+    password: "${LAVALINK_PASSWORD}"
+    sources:
+      youtube: false        # must stay false: the plugin handles YouTube
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      nico: false
+      http: true
+      local: false
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: false
+      timescale: true
+      tremolo: false
+      vibrato: false
+      distortion: false
+      rotation: false
+      channelMix: false
+      lowPass: false
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: LOW
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - MUSIC
+      - TVHTML5_SIMPLY
+      - TV
+      - MWEB
+      - IOS
+      - ANDROID_MUSIC
+      - WEB
+      - WEBEMBEDDED
+      - ANDROID_VR
+    # YouTube login (burner Google account). install.sh does the login and saves the token in .env.
+    oauth:
+      enabled: ${YOUTUBE_OAUTH:false}
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+    # Self-hosted cipher helper (the yt-cipher container).
+    remoteCipher:
+      url: "http://yt-cipher:8001/"
+      password: "${CIPHER_TOKEN:}"
+      userAgent: "server-bot"
+
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
+  request:
+    enabled: false
