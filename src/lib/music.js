@@ -20,9 +20,17 @@ const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\/\S+$/i.test(u) ? u
 
 // ---------- Spotify -> YouTube matching ----------
 const GOOD_MATCH = 70;
+// Album words that say nothing about which album it is.
+const ALBUM_FILLER = new Set(['the', 'and', 'original', 'soundtrack', 'ost', 'set', 'deluxe', 'edition', 'version', 'ver',
+  'remaster', 'remastered', 'digital', 'expanded', 'anniversary', 'vol', 'volume', 'part', 'disc', 'music', 'from',
+  'motion', 'picture', 'game', 'video', 'series', 'songs', 'collection', 'greatest', 'hits', 'best', 'album', 'single', 'ep']);
+const albumWords = (album) => [...new Set(words(album).filter((w) => w.length >= 4 && !ALBUM_FILLER.has(w)))];
+// "Catherine & Catherine Full Body Soundtrack Set" -> "Catherine Full Body" (what fans put in upload titles)
+const albumQuery = (album) => albumWords(album).slice(0, 4).join(' ');
 // Versions people upload that are NOT the original song. Penalised unless the Spotify title has the word too.
 const ALT_VERSION = ['sped up', 'speed up', 'slowed', 'nightcore', 'reverb', '8d', 'bass boosted', 'karaoke',
-  'instrumental', 'cover', 'remix', 'live', 'acapella', 'a cappella', '1 hour', 'loop', 'reaction', 'piano version', 'lyrics video'];
+  'instrumental', 'cover', 'remix', 'live', 'acapella', 'a cappella', '1 hour', '1hr', 'hour', 'loop', 'looped',
+  'extended', 'reaction', 'piano version', 'lyrics video'];
 const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const words = (s) => norm(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 const compact = (s) => words(s).join('');
@@ -42,6 +50,13 @@ function matchScore(want, r) {
   if (want.length && r.length) {
     const d = Math.abs(r.length - want.length) / 1000;
     score += d <= 3 ? 25 : d <= 8 ? 15 : d <= 15 ? 5 : d <= 30 ? -10 : -30;
+  }
+  // Album: fan uploads of soundtracks name the game/film/album instead of the artist.
+  const aw = albumWords(want.album);
+  if (aw.length) {
+    const hay = ` ${words(`${r.title} ${r.author}`).join(' ')} `;
+    const hit = aw.filter((w) => hay.includes(` ${w} `)).length;
+    if (hit) score += 20 + 5 * (hit / aw.length);
   }
   // Sped up / slowed / cover / live... when the Spotify song isn't.
   const has = (text, phrase) => ` ${words(text).join(' ')} `.includes(` ${phrase} `); // whole words only ("live" but not "alive")
@@ -369,6 +384,7 @@ class MusicManager {
       const tracks = sp.tracks.map((t) => ({
         encoded: null,
         search: `${t.title} ${t.artist}`.trim(),
+        album: sp.type === 'album' ? sp.name : undefined, // playlists/single songs: looked up only if needed
         info: { title: t.title, author: t.artist, length: t.length, uri: spotify.openUrl(t.uri), isStream: false, artworkUrl: null },
       }));
       return sp.type === 'track' ? { tracks } : { tracks, playlist: sp.name };
@@ -387,24 +403,33 @@ class MusicManager {
 
   // Find a Spotify song on YouTube: YouTube Music first (official audio), then normal YouTube.
   // Prefers a result whose length is within 15 seconds of the Spotify song, so covers/live/extended versions lose.
-  // Spotify song -> the best YouTube match. Searches YouTube Music first (official audio), then normal YouTube,
-  // and scores every result on artist, title and length instead of trusting the first result.
+  // Spotify song -> the best YouTube match. Scores every result on artist, title, album and length instead of
+  // trusting the first result. 1) "title artist" on YouTube Music, then YouTube. 2) Still unsure (e.g. a game
+  // soundtrack that only exists as fan uploads)? Look up the album name and search "title album" too.
   async findOnYouTube(t) {
     const node = this.shoukaku.getIdealNode();
     if (!node) return null;
-    const prefixes = this.searchPrefix === 'scsearch' ? ['scsearch'] : ['ytmsearch', 'ytsearch'];
     let best = null;
-    for (const prefix of prefixes) {
-      const res = await node.rest.resolve(`${prefix}:${t.search}`).catch(() => null);
-      const results = res?.loadType === 'search' ? res.data.slice(0, 8) : [];
-      for (const r of results) {
-        const score = matchScore(t.info, r.info) + (prefix === 'ytmsearch' ? 3 : 0);
+    const tryQuery = async (prefix, q) => {
+      const res = await node.rest.resolve(`${prefix}:${q}`).catch(() => null);
+      for (const r of res?.loadType === 'search' ? res.data.slice(0, 8) : []) {
+        const score = matchScore({ ...t.info, album: t.album }, r.info) + (prefix === 'ytmsearch' ? 3 : 0);
         if (!best || score > best.score) best = { track: r, score };
       }
-      if (best && best.score >= GOOD_MATCH) break; // confident: skip the second search
+      return best && best.score >= GOOD_MATCH;
+    };
+    if (this.searchPrefix === 'scsearch') { await tryQuery('scsearch', t.search); return best?.track || null; }
+    if (await tryQuery('ytmsearch', t.search) || await tryQuery('ytsearch', t.search)) return best.track;
+    if (t.album === undefined) t.album = t.info.uri ? await spotify.albumOf(t.info.uri) : null;
+    const album = albumQuery(t.album);
+    if (album) {
+      // re-score what we already have now that the album is known, then search with it
+      if (best) best.score = matchScore({ ...t.info, album: t.album }, best.track.info);
+      await tryQuery('ytsearch', `${t.info.title} ${album}`);
     }
     return best?.track || null;
   }
+
 
 
   // The panel lives in the voice channel's built-in text chat, so the controls sit with the people listening.
@@ -457,4 +482,4 @@ class MusicManager {
   }
 }
 
-module.exports = { MusicManager, isStaff, matchScore };
+module.exports = { MusicManager, isStaff, matchScore, albumQuery };

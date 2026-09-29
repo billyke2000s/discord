@@ -50,10 +50,28 @@ async function load(url) {
   return { name: data.name || data.title || 'Spotify', type: data.type, tracks };
 }
 
+// Album name of one song, from the song's public Spotify page. Its preview text reads
+// "Artist · Album · Song · Year". Only used when the YouTube search wasn't sure. null if unavailable.
+async function albumOf(trackUrl) {
+  try {
+    const res = await fetch(trackUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) return null;
+    return parseAlbum(await res.text());
+  } catch { return null; }
+}
+function parseAlbum(html) {
+  const m = /<meta[^>]+property="og:description"[^>]+content="([^"]*)"/i.exec(html)
+         || /<meta[^>]+content="([^"]*)"[^>]+property="og:description"/i.exec(html);
+  if (!m) return null;
+  const text = m[1].replace(/&amp;/g, '&').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  const parts = text.split(' · ');
+  return parts.length >= 4 && /^song$/i.test(parts[parts.length - 2]) ? parts.slice(1, -2).join(' · ') || null : null;
+}
+
 // "spotify:track:abc" -> "https://open.spotify.com/track/abc"
 const openUrl = (uri) => {
   const m = /^spotify:(track|album|playlist):([A-Za-z0-9]+)/.exec(uri || '');
   return m ? `https://open.spotify.com/${m[1]}/${m[2]}` : null;
 };
 
-module.exports = { isSpotifyUrl, load, openUrl };
+module.exports = { isSpotifyUrl, load, openUrl, albumOf, parseAlbum };
