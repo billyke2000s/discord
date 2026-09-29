@@ -18,6 +18,38 @@ function isStaff(member) {
 // Embed builders throw on bad URLs; a bad artwork link from a source must never crash the bot.
 const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\/\S+$/i.test(u) ? u : null);
 
+// ---------- Spotify -> YouTube matching ----------
+const GOOD_MATCH = 70;
+// Versions people upload that are NOT the original song. Penalised unless the Spotify title has the word too.
+const ALT_VERSION = ['sped up', 'speed up', 'slowed', 'nightcore', 'reverb', '8d', 'bass boosted', 'karaoke',
+  'instrumental', 'cover', 'remix', 'live', 'acapella', 'a cappella', '1 hour', 'loop', 'reaction', 'piano version', 'lyrics video'];
+const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const words = (s) => norm(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+const compact = (s) => words(s).join('');
+
+// 0-100ish: how likely YouTube result `r` is the exact Spotify song `want` (same artist, same title, same length).
+function matchScore(want, r) {
+  let score = 0;
+  const ytTitle = norm(r.title), channel = compact(String(r.author || '').replace(/- topic$/i, ''));
+  const artists = String(want.author || '').split(',').map(compact).filter((a) => a.length >= 2);
+  // Artist: the channel is the artist (YouTube Music / "Artist - Topic" / ArtistVEVO), or the artist is named in the title.
+  if (artists.some((a) => channel && (channel.includes(a) || a.includes(channel)))) score += 40;
+  else if (artists.some((a) => compact(r.title).includes(a))) score += 25;
+  // Title: how many of the Spotify title's words appear in the YouTube title.
+  const tw = words(want.title).filter((w) => w.length > 1 || /\p{N}/u.test(w));
+  if (tw.length) score += 30 * (tw.filter((w) => ytTitle.includes(w)).length / tw.length);
+  // Length: the same recording is within a few seconds.
+  if (want.length && r.length) {
+    const d = Math.abs(r.length - want.length) / 1000;
+    score += d <= 3 ? 25 : d <= 8 ? 15 : d <= 15 ? 5 : d <= 30 ? -10 : -30;
+  }
+  // Sped up / slowed / cover / live... when the Spotify song isn't.
+  const has = (text, phrase) => ` ${words(text).join(' ')} `.includes(` ${phrase} `); // whole words only ("live" but not "alive")
+  for (const v of ALT_VERSION) if (has(r.title, v) && !has(want.title, v)) score -= 40;
+  if (r.isStream) score -= 50;
+  return score;
+}
+
 function progressBar(pos, len, size = 18) {
   const filled = Math.min(size, Math.max(0, Math.round((pos / len) * size)));
   return '━'.repeat(filled) + '●' + '─'.repeat(size - filled);
@@ -141,13 +173,16 @@ class GuildQueue {
     const next = this.tracks.slice(0, 3).map((x, i) => `\`${i + 1}.\` ${truncate(x.info.title, 55)}`).join('\n') || '*Nothing — add songs with `/play`*';
     const skip = this.voteStatus('skip'), stop = this.voteStatus('stop');
     const paused = this.player.paused;
+    // Spotify songs: show which YouTube upload is really playing, so a wrong match is easy to spot.
+    const pf = t.playedFrom, pfUrl = safeUrl(pf?.uri);
+    const from = pf ? `\n▶ YouTube: ${pfUrl ? `[${truncate(pf.title, 70).replace(/[[\]]/g, '')}](${pfUrl})` : truncate(pf.title, 70)}${pf.author ? ` · ${truncate(pf.author, 40)}` : ''}` : '';
 
     const e = embed(BRAND_COLOR)
       .setAuthor(brand)
       .setTitle(truncate(t.info.title, 250))
       .setURL(safeUrl(t.info.uri))
       .setThumbnail(safeUrl(t.info.artworkUrl))
-      .setDescription(`${t.info.author || ''}\n\n${paused ? '⏸ **Paused**\n' : ''}${time}`)
+      .setDescription(`${t.info.author || ''}${from}\n\n${paused ? '⏸ **Paused**\n' : ''}${time}`)
       .addFields(
         { name: 'Requested by', value: `<@${t.requester}>`, inline: true },
         { name: 'Volume', value: `${this.volume}%`, inline: true },
@@ -244,6 +279,7 @@ class GuildQueue {
         this.current.encoded = found.encoded;
         this.current.info.length = found.info.length || this.current.info.length;
         this.current.info.artworkUrl = found.info.artworkUrl || null;
+        this.current.playedFrom = { title: found.info.title, author: found.info.author, uri: found.info.uri }; // shown on the panel
         break;
       }
       this.send(embed('grey').setDescription(`Couldn't find **${truncate(this.current.info.title, 80)}** on YouTube, skipping it.`));
@@ -351,20 +387,25 @@ class MusicManager {
 
   // Find a Spotify song on YouTube: YouTube Music first (official audio), then normal YouTube.
   // Prefers a result whose length is within 15 seconds of the Spotify song, so covers/live/extended versions lose.
+  // Spotify song -> the best YouTube match. Searches YouTube Music first (official audio), then normal YouTube,
+  // and scores every result on artist, title and length instead of trusting the first result.
   async findOnYouTube(t) {
     const node = this.shoukaku.getIdealNode();
     if (!node) return null;
     const prefixes = this.searchPrefix === 'scsearch' ? ['scsearch'] : ['ytmsearch', 'ytsearch'];
-    let fallback = null;
+    let best = null;
     for (const prefix of prefixes) {
       const res = await node.rest.resolve(`${prefix}:${t.search}`).catch(() => null);
-      const results = res?.loadType === 'search' ? res.data.slice(0, 5) : [];
-      const close = t.info.length ? results.find((r) => Math.abs((r.info.length || 0) - t.info.length) <= 15_000) : null;
-      if (close) return close;
-      fallback ||= results[0] || null;
+      const results = res?.loadType === 'search' ? res.data.slice(0, 8) : [];
+      for (const r of results) {
+        const score = matchScore(t.info, r.info) + (prefix === 'ytmsearch' ? 3 : 0);
+        if (!best || score > best.score) best = { track: r, score };
+      }
+      if (best && best.score >= GOOD_MATCH) break; // confident: skip the second search
     }
-    return fallback;
+    return best?.track || null;
   }
+
 
   // The panel lives in the voice channel's built-in text chat, so the controls sit with the people listening.
   // Falls back to the channel /play was used in if I can't post in the voice chat.
@@ -416,4 +457,4 @@ class MusicManager {
   }
 }
 
-module.exports = { MusicManager, isStaff };
+module.exports = { MusicManager, isStaff, matchScore };

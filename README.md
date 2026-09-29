@@ -62,7 +62,7 @@ Everything runs on your own VPS in Docker (3 small containers). No ports are ope
 | **2 GB RAM, 1–2 cores** | ✅ lean mode, everything on |
 | **4 GB RAM, 2+ cores** | ✅ comfortable |
 
-The installer asks **"Does this server have 3 GB of RAM or less?"**. Answer yes and it uses the leanest settings: smaller music server, smaller caches, and swap on servers under 2 GB. Every feature, Spotify included, works in both modes.
+The installer checks how much RAM the server has and picks the mode itself: **3 GB or less = lean mode** (smaller music server, smaller caches, and swap on servers under 2 GB), more = standard mode. It checks again on every run, so upgrading your VPS switches modes by itself. To force a mode: `LEAN=yes bash install.sh` or `LEAN=no bash install.sh`. Every feature, Spotify included, works in both modes.
 
 Measured memory use (on a test machine, before any audio plays):
 
@@ -97,7 +97,8 @@ The installer:
    - your server ID; if the bot isn't in the server yet, it prints the invite link and waits
    - your admin user ID(s)
    - whether to set up YouTube. If yes, it shows a code to enter at google.com/device with the throwaway account.
-   - whether the server has 3 GB of RAM or less (lean mode).
+
+   It picks lean or standard mode by itself from the server's RAM.
 4. **Installs Docker** from Docker's official repository and **downloads the ready-made bot** (built by this repo's GitHub Actions, pinned to an exact version) plus the other parts (checksums verified, versions pinned). If a ready-made part can't be downloaded, it builds that part on the VPS instead. That's slower but still works.
 5. **Waits** until the bot is online and music is connected, then tells you what to do next.
 
@@ -105,7 +106,7 @@ The installer:
 
 ---
 
-## Publishing and that 
+## Publishing (for whoever owns this repo)
 
 Every push to `main` makes GitHub Actions (`.github/workflows/release.yml`):
 

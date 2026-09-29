@@ -181,10 +181,13 @@ fi
 SEARCH="${SEARCH:-ytsearch}"
 
 step "Server size"
-LOW_MEM="$(envget LOW_MEMORY)"
-if [ -n "$LOW_MEM" ]; then def=$([ "$LOW_MEM" = yes ] && echo y || echo n); else def=$( (( MEM_MB <= 3200 )) && echo y || echo n); fi
-echo "  This VPS has ${B}${MEM_MB} MB${N} of RAM."
-if yesno "Does this server have 3 GB of RAM or less? (uses the leanest settings)" "$def"; then LOW_MEM=yes; else LOW_MEM=no; fi
+# Picked automatically from the RAM this VPS really has (checked again on every run, so an upgraded
+# VPS switches to standard mode by itself). Override: LEAN=yes bash install.sh  (or LEAN=no)
+case "${LEAN:-}" in
+  yes|no) LOW_MEM="$LEAN"; why="you set LEAN=$LEAN" ;;
+  *) if (( MEM_MB <= 3200 )); then LOW_MEM=yes; else LOW_MEM=no; fi; why="3 GB or less = lean, more = standard" ;;
+esac
+echo "  This VPS has ${B}${MEM_MB} MB${N} of RAM -> ${B}$([ "$LOW_MEM" = yes ] && echo lean || echo standard) mode${N} (${why})."
 if [ "$LOW_MEM" = yes ]; then
   LL_OPTS="-Xmx256m -XX:+UseSerialGC -Xss512k -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=128m"
   LL_LIMIT="512m"; CIPHER_CACHE=25
