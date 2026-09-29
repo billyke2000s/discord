@@ -1,8 +1,10 @@
 # Server Bot
 
-An all-in-one Discord bot for a gaming server that you host yourself on a VPS. It covers music (YouTube and Spotify), join-to-create voice channels, captcha verification, moderation, a scam-link filter, tickets, logs and a one-time server builder.
+An all-in-one Discord bot for a server that you host yourself. It covers music (YouTube and Spotify), join-to-create voice channels, captcha verification, moderation, a scam-link filter, tickets, logs and a one-time server builder.
 
-Everything runs on your own VPS in Docker (3 small containers). No ports are opened to the internet.
+Everything runs on your own server in Docker (3 small containers). No ports are opened to the internet.
+
+recommended server specs 2gb ram 1 core 
 
 ---
 
