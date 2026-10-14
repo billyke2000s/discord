@@ -105,7 +105,7 @@ const diagnostics = {
           add(lostPct < 1 ? 'ok' : lostPct < 5 ? 'warn' : 'fail', 'Audio smoothness (last minute)',
             `${lostPct.toFixed(1)}% of audio frames missing or late${lostPct < 1 ? ' (low loss)' : ' (check CPU, GC pauses, network and source failures; cause is not determined)'}`);
         } else {
-          add('ok', 'Audio smoothness', 'nothing playing right now: play a song for a minute, then run /diagnostics again');
+          add('warn', 'Audio smoothness', 'frame statistics unavailable: audio loss cannot be assessed. Play for a minute and check again; missing statistics do not mean playback is idle.');
         }
         const has = (n) => plugins.some((p) => p.toLowerCase().includes(n));
         add(has('youtube') ? 'ok' : 'fail', 'YouTube plugin', has('youtube') ? plugins.find((p) => p.toLowerCase().includes('youtube')) : 'not loaded');
