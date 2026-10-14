@@ -175,7 +175,7 @@ Roles        Admin · Staff · Member
 ### Admins
 | Command | What it does |
 |---|---|
-| `/diagnostics` | Checks everything is working |
+| `/diagnostics` or `/diagnosis` | Grouped health checks, resource samples, playback warnings and a small internet speed test; once every 5 minutes |
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
@@ -253,6 +253,9 @@ For optional scheduled updates with backups, health checks and image rollback, s
 [automatic updates](docs/AUTO_UPDATES.md). They are disabled by default and require
 explicit setup on the VPS. The [full audit](docs/AUDIT.md) records confirmed findings,
 remaining risks and the measurements needed to investigate cutouts.
+
+The [diagnostic guide](docs/DIAGNOSTICS.md) explains the grouped report, load categories,
+small internet speed test, limits and five-minute cooldown.
 
 ```bash
 cd /root/server-bot

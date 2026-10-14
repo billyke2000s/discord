@@ -14,7 +14,7 @@ const help = {
     if (m.permissions.has(P.ModerateMembers) || isOwner(interaction.user, interaction.guild))
       fields.push({ name: '🛡️ Staff', value: '`/warn` `/warnings` `/delwarn` `/timeout` `/untimeout` `/kick` `/ban` `/unban` `/purge` `/slowmode` · music: skip or stop without a vote' });
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
-      let admin = '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` (checks everything is working)';
+      let admin = '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` or `/diagnosis` (grouped checks, server resources and a small speed test; 5-minute cooldown)';
       if (isOwner(interaction.user, interaction.guild)) {
         const locked = rebuildLocked(interaction.guildId);
         admin += locked ? '\nOwner: `/setup restyle` (`/setup rebuild` is locked)' : '\nOwner: `/setup restyle` `/setup rebuild`';
