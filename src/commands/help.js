@@ -11,7 +11,7 @@ const help = {
       { name: '🎵 Music', value: '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has pause, vote skip, vote stop, shuffle, queue and volume. Skip and stop need more than half of the people in the channel.' },
       { name: '🔊 Your voice channel', value: 'Join ➕・Join to Create to get your own, then `/vc lock` `unlock` `limit` `rename` `kick` `invite` `transfer`' },
     ];
-    fields.push({ name: '🎮 Community', value: '`/game-night create|cancel` · `/poll create|close` · `/birthday set|show|remove`' });
+    fields.push({ name: '🎮 Community', value: '`/poll create|close` · `/birthday set|show|remove`' });
     if (m.permissions.has(P.ModerateMembers) || isOwner(interaction.user, interaction.guild))
       fields.push({ name: '🛡️ Staff', value: '`/warn` `/warnings` `/delwarn` `/timeout` `/untimeout` `/kick` `/ban` `/unban` `/purge` `/slowmode` · music: skip or stop without a vote' });
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
