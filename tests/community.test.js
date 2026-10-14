@@ -1,0 +1,10 @@
+const test=require('node:test');const assert=require('node:assert/strict');
+const fs=require('node:fs');const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const source=(p)=>fs.readFileSync(path.join(root,p),'utf8');
+test('new commands are registered',()=>{const s=source('src/commands/index.js');for(const name of ['birthday','birthday-channel','polls','game-nights','server-health'])assert.ok(s.includes(`require('./${name}')`));});
+test('periodic jobs are wired',()=>{const s=source('src/index.js');for(const name of ['birthdays.sweep(client)','polls.sweep(client)','gameNights.sweep(client)'])assert.ok(s.includes(name));});
+test('voice invite checks server membership',()=>{const s=source('src/commands/voice.js');assert.match(s,/case 'invite'/);assert.match(s,/guild.members.fetch\(u.id\)/);});
+test('polls enforce unique options and a single vote per user',()=>{const s=source('src/commands/polls.js');assert.match(s,/new Set\(options.map/);assert.match(s,/PRIMARY KEY\(poll_id,user_id\)/);});
+test('birthdays store no year of birth and enforce one announcement per year',()=>{const s=source('src/commands/birthday.js');assert.doesNotMatch(s,/birth_year|birthYear/);assert.match(s,/last_sent_year/);});
+test('server health is permission restricted',()=>{const s=source('src/commands/server-health.js');assert.match(s,/setDefaultMemberPermissions\(P.ManageGuild\)/);assert.match(s,/memberPermissions.has\(P.ManageGuild\)/);});
