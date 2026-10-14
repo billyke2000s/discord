@@ -104,7 +104,16 @@ async function sweepUnverified(client) {
     if (!s.verify.enabled || !s.verify.timeoutMinutes) continue;
     if (Date.now() - row.joined_at < s.verify.timeoutMinutes * 60_000) continue;
 
-    const member = await guild.members.fetch(row.user_id).catch(() => null);
+    let member;
+    try {
+      member = await guild.members.fetch(row.user_id);
+    } catch (error) {
+      if (error.code !== 10007) {
+        console.error('[verify] Member lookup failed:', error);
+        continue;
+      }
+      member = null;
+    }
     if (!member || member.roles.cache.has(s.verify.memberRole)) {
       db.prepare('DELETE FROM pending_verify WHERE guild_id = ? AND user_id = ?').run(row.guild_id, row.user_id);
       continue;
