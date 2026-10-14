@@ -72,9 +72,14 @@ const play = {
     const query = interaction.options.getString('query', true);
 
     await interaction.deferReply();
+    return music.withPlayLock(interaction.guildId, async () => {
+    // Recheck after waiting behind another import, including a concurrent join.
+    const active = music.get(interaction.guildId);
+    if (interaction.member.voice?.channelId !== vc.id) return interaction.editReply('You left the voice channel before this request could be queued.');
+    if (active && active.voiceChannelId !== vc.id) return interaction.editReply(`I'm now playing in <#${active.voiceChannelId}>.`);
     let result;
     try {
-      result = await music.resolve(query);
+      result = await music.resolveForPlayback(query);
     } catch (e) {
       return interaction.editReply(`Couldn't load that: ${truncate(e.message, 300)}`);
     }
@@ -91,9 +96,17 @@ const play = {
     const added = q.add(result.tracks);
     const wasIdle = !q.current;
     await q.start();
+    if (q.destroyed) return interaction.editReply('This music session ended before playback could start.');
     const where = q.textChannel && q.textChannel.id !== interaction.channelId ? ` · controls in ${q.textChannel}` : '';
 
-    if (result.playlist) {
+    if (result.remaining && added) {
+      await interaction.editReply('First track queued; loading the rest of the playlist in the background.');
+      await q.importRemaining(result.remaining, result.tracks[0], interaction.user.id, async (r) => {
+        const message = r.error ? `First track kept, but the rest of the playlist could not load: ${truncate(r.error, 200)}`
+          : `Added **${r.added}** more tracks from **${truncate(r.playlist || 'YouTube playlist', 80)}**${r.omitted ? ` (${r.omitted} left out: queue full)` : ''}${where}`;
+        await interaction.editReply(message).catch(() => {});
+      });
+    } else if (result.playlist) {
       const cut = result.tracks.length - added;
       await interaction.editReply({ embeds: [embed('ok').setDescription(`Queued **${added}** tracks from **${truncate(result.playlist, 80)}**${cut > 0 ? ` (${cut} left out: the queue is full)` : ''}${where}`)] });
     } else {
@@ -102,6 +115,7 @@ const play = {
         embeds: [embed('ok').setDescription(`${wasIdle ? 'Playing' : 'Queued'} **[${truncate(t.info.title, 90)}](${t.info.uri})** · ${t.info.isStream ? 'LIVE' : fmtDuration(t.info.length)}${where}`)],
       });
     }
+    });
   },
 };
 

@@ -37,6 +37,10 @@ envget() { [ -f "$INSTALL_DIR/.env" ] && grep -E "^$1=" "$INSTALL_DIR/.env" | ta
 
 [ "$(id -u)" -eq 0 ] || die "Run this as root (log in as root, or use: sudo bash install.sh)"
 command -v apt-get >/dev/null || die "This installer supports Ubuntu/Debian (apt) only."
+mkdir -p "$INSTALL_DIR"
+exec 9>"$INSTALL_DIR/.deployment.lock"
+flock -n 9 || die 'Another installation/update is running.'
+[ ! -f "$INSTALL_DIR/.update-pending.json" ] || die 'An automatic update was interrupted. Run deployment/update.py --apply to recover it before using this installer.'
 
 # ---------- 0. check this VPS can run it, before changing anything ----------
 echo

@@ -3,6 +3,7 @@ const { Shoukaku, Connectors } = require('shoukaku');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits: P } = require('discord.js');
 const { embed, fmtDuration, truncate, isBotAdmin } = require('./util');
 const spotify = require('./spotify');
+const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlist');
 
 const IDLE_LEAVE_MS = 2 * 60 * 1000; // leave after 2 min with empty queue or empty channel
 const MAX_QUEUE = 500;
@@ -82,10 +83,16 @@ class GuildQueue {
     this.current = null;
     this.idleTimer = null;
     this.destroyed = false;
+    this.transition = null;
+    this.revision = 0;
+    this.imports = new Set();
+    this.preparing = new WeakMap();
+    this.prefetching = false;
     this.volume = Number(process.env.DEFAULT_VOLUME || 60);
     this.votes = { skip: new Set(), stop: new Set() };
     this.panelMsg = null;
     this.panelTimer = null;
+    this.panelGeneration = 0;
     // Our own song clock. Lavalink only reports the position every 5 s, so between reports we
     // count forward from the last one (and stop counting while paused).
     this.clock = { base: 0, at: Date.now() };
@@ -102,9 +109,11 @@ class GuildQueue {
     player.on('end', (e) => {
       // 'replaced' = we called playTrack over it; 'cleanup' = player destroyed. Don't advance on those.
       if (e.reason === 'replaced' || e.reason === 'cleanup') return;
-      this.next();
+      this.advanceAfterEvent(e);
     });
-    player.on('stuck', () => this.next());
+    player.on('stuck', (e) => {
+      this.advanceAfterEvent(e);
+    });
     player.on('exception', (e) => {
       this.send(embed('bad').setDescription(`Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**: ${truncate(e.exception?.message || 'unknown error', 200)}. Moving on.`));
     });
@@ -223,14 +232,18 @@ class GuildQueue {
   // New song: delete the old panel and post a fresh one at the bottom of the chat.
   async postPanel() {
     if (this.destroyed || !this.textChannel) return;
+    const generation = ++this.panelGeneration;
     const old = this.panelMsg;
     let payload;
     try { payload = this.panelPayload(); } catch (e) { return console.error('[music panel]', e.message); }
-    this.panelMsg = await this.textChannel.send(payload).catch(() => null);
-    if (!this.panelMsg && this.fallbackChannel && this.fallbackChannel !== this.textChannel) {
+    let message = await this.textChannel.send(payload).catch(() => null);
+    if (this.destroyed || generation !== this.panelGeneration) { await message?.delete().catch(() => {}); return; }
+    if (!message && this.fallbackChannel && this.fallbackChannel !== this.textChannel) {
       this.textChannel = this.fallbackChannel; // voice chat didn't work: use the /play channel from now on
-      this.panelMsg = await this.textChannel.send(payload).catch(() => null);
+      message = await this.textChannel.send(payload).catch(() => null);
     }
+    if (this.destroyed || generation !== this.panelGeneration) { await message?.delete().catch(() => {}); return; }
+    this.panelMsg = message;
     if (old) old.delete().catch(() => {});
     clearInterval(this.panelTimer);
     this.panelTimer = setInterval(() => this.refreshPanel(), PANEL_REFRESH_MS);
@@ -244,6 +257,7 @@ class GuildQueue {
   }
 
   endPanel(state) {
+    this.panelGeneration++;
     clearInterval(this.panelTimer);
     this.panelTimer = null;
     const p = this.refreshPanel(state);
@@ -253,9 +267,11 @@ class GuildQueue {
 
   // ---------- queue control ----------
   add(tracks) {
+    if (this.destroyed) return 0;
     const room = MAX_QUEUE - this.tracks.length;
     const added = tracks.slice(0, Math.max(0, room));
     this.tracks.push(...added);
+    this.prefetch();
     if (this.current) this.refreshPanel(); // "Up next" changed
     return added.length;
   }
@@ -278,34 +294,117 @@ class GuildQueue {
     await this.next();
   }
 
-  async next() {
+  // Resolve only two upcoming Spotify entries at a time, one request chain at a
+  // time. The full metadata list is cheap; matching 200 songs eagerly is not.
+  prepare(track) {
+    if (track.encoded) return Promise.resolve(track);
+    if (this.preparing.has(track)) return this.preparing.get(track);
+    const revision = this.revision;
+    const task = this.manager.findOnYouTube(track).then((found) => {
+      if (this.destroyed || revision !== this.revision || !found) return null;
+      track.encoded = found.encoded;
+      track.info.length = found.info.length || track.info.length;
+      track.info.artworkUrl = found.info.artworkUrl || null;
+      track.playedFrom = { title: found.info.title, author: found.info.author, uri: found.info.uri };
+      return track;
+    }).catch(() => null).finally(() => this.preparing.delete(track));
+    this.preparing.set(track, task);
+    return task;
+  }
+
+  async prefetch() {
+    if (this.prefetching || this.destroyed || !this.current) return;
+    this.prefetching = true;
+    try {
+      for (const track of this.tracks.slice(0, 2)) {
+        if (this.destroyed) break;
+        await this.prepare(track);
+      }
+    } finally { this.prefetching = false; }
+  }
+
+  importRemaining(loader, first, requester, report) {
+    // Keep a short track's empty queue alive until its import finishes.
+    this.clearIdle();
+    const task = Promise.resolve().then(async () => {
+      try {
+        const result = await loader();
+        if (this.destroyed) return;
+        const tracks = withoutBootstrap(result.tracks, first);
+        for (const t of tracks) t.requester = requester;
+        const added = this.add(tracks);
+        await this.start();
+        await report({ added, omitted: tracks.length - added, playlist: result.playlist });
+      } catch (err) {
+        if (!this.destroyed) await report({ error: err.message });
+      } finally {
+        this.imports.delete(task);
+        if (!this.destroyed && !this.current && !this.imports.size) this.scheduleIdleLeave();
+      }
+    });
+    this.imports.add(task);
+    task.catch((err) => console.error('[playlist import]', err.message));
+    return task;
+  }
+
+  next() {
+    if (this.transition) return this.transition;
+    const task = this.advance().finally(() => { if (this.transition === task) this.transition = null; });
+    this.transition = task;
+    return task;
+  }
+
+  advanceAfterEvent(event) {
+    const ended = this.current;
+    if (!ended || this.destroyed || (event.track?.encoded && ended.encoded !== event.track.encoded)) return;
+    // A very short/failed track can end before the play REST request settles.
+    // Preserve that event and coalesce duplicates for this exact queue entry.
+    if (this.ending === ended) return;
+    this.ending = ended;
+    Promise.resolve(this.transition).then(() => {
+      if (!this.destroyed && this.current === ended) return this.next();
+    }).catch((err) => console.error('[music advance]', err.message))
+      .finally(() => { if (this.ending === ended) this.ending = null; });
+  }
+
+  async advance() {
     if (this.destroyed) return;
     for (;;) {
       this.current = this.tracks.shift() || null;
       if (!this.current) {
         this.endPanel('finished');
-        return this.scheduleIdleLeave();
+        if (!this.imports.size) this.scheduleIdleLeave();
+        return;
       }
-      if (this.current.encoded) break;
+      const track = this.current;
+      if (track.encoded) {
+        this.clearIdle();
+        try {
+          await this.player.playTrack({ track: { encoded: track.encoded } });
+          if (this.destroyed) return;
+          this.prefetch();
+          return;
+        } catch (err) {
+          this.send(embed('bad').setDescription(`Could not play that track: ${truncate(err.message, 200)}. Moving on.`));
+          continue;
+        }
+      }
       // A Spotify song: find it on YouTube now that it's its turn.
-      const found = await this.manager.findOnYouTube(this.current).catch(() => null);
+      const found = await this.prepare(track);
       if (this.destroyed) return;
       if (found) {
-        this.current.encoded = found.encoded;
-        this.current.info.length = found.info.length || this.current.info.length;
-        this.current.info.artworkUrl = found.info.artworkUrl || null;
-        this.current.playedFrom = { title: found.info.title, author: found.info.author, uri: found.info.uri }; // shown on the panel
-        break;
+        // Keep this entry at the head so the common play/error path handles it.
+        this.tracks.unshift(track);
+        continue;
       }
       this.send(embed('grey').setDescription(`Couldn't find **${truncate(this.current.info.title, 80)}** on YouTube, skipping it.`));
     }
-    this.clearIdle();
-    await this.player.playTrack({ track: { encoded: this.current.encoded } }).catch((err) => {
-      this.send(embed('bad').setDescription(`Could not play that track: ${err.message}`));
-    });
   }
 
   async skip() {
+    const target = this.current;
+    if (this.transition) await this.transition;
+    if (this.destroyed || !target || this.current !== target) return;
     // stopTrack fires 'end' with reason 'stopped', which calls next().
     await this.player.stopTrack();
   }
@@ -326,9 +425,11 @@ class GuildQueue {
   async destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.revision++;
+    this.tracks.length = 0;
     this.clearIdle();
-    await this.endPanel('stopped');
     this.manager.queues.delete(this.guildId);
+    await this.endPanel('stopped');
     await this.manager.shoukaku.leaveVoiceChannel(this.guildId).catch(() => {});
   }
 }
@@ -338,6 +439,7 @@ class MusicManager {
     this.client = client;
     this.queues = new Map();
     this.creating = new Map(); // guildId -> promise, so two quick /plays don't join twice
+    this.playRequests = new Map();
     this.searchPrefix = process.env.SEARCH_PREFIX || 'ytsearch';
     this.nodeOptions = {
       name: 'main',
@@ -375,6 +477,14 @@ class MusicManager {
     return this.queues.get(guildId);
   }
 
+  async withPlayLock(guildId, work) {
+    const previous = this.playRequests.get(guildId) || Promise.resolve();
+    const task = previous.catch(() => {}).then(work);
+    this.playRequests.set(guildId, task);
+    try { return await task; }
+    finally { if (this.playRequests.get(guildId) === task) this.playRequests.delete(guildId); }
+  }
+
   async resolve(query) {
     const node = this.shoukaku.getIdealNode();
     if (!node) throw new Error('Music server (Lavalink) is not connected.');
@@ -399,6 +509,20 @@ class MusicManager {
       case 'error': throw new Error(res.data?.message || 'Lavalink could not load that.');
       default: return { tracks: [] };
     }
+  }
+
+  async resolveForPlayback(query) {
+    const playlist = youtubePlaylist(query);
+    if (playlist) {
+      try {
+        const video = await bootstrapVideo(playlist);
+        if (video) {
+          const first = await this.resolve(`https://www.youtube.com/watch?v=${video}`);
+          if (first.tracks.length) return { ...first, playlist: 'YouTube playlist', remaining: () => this.resolve(query) };
+        }
+      } catch (err) { console.warn('[playlist bootstrap] falling back:', err.message); }
+    }
+    return this.resolve(query);
   }
 
   // Find a Spotify song on YouTube: YouTube Music first (official audio), then normal YouTube.
@@ -482,4 +606,4 @@ class MusicManager {
   }
 }
 
-module.exports = { MusicManager, isStaff, matchScore, albumQuery };
+module.exports = { MusicManager, GuildQueue, isStaff, matchScore, albumQuery };

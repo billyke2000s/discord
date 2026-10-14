@@ -101,9 +101,9 @@ const diagnostics = {
         // Lavalink sends 50 audio frames a second = 3000 a minute per player. Missing/late frames = stutter.
         if (st?.frameStats) {
           const lost = (st.frameStats.nulled || 0) + Math.max(0, st.frameStats.deficit || 0);
-          const lostPct = (lost / 3000) * 100;
+          const lostPct = (lost / (3000 * Math.max(1, st.playingPlayers || 1))) * 100;
           add(lostPct < 1 ? 'ok' : lostPct < 5 ? 'warn' : 'fail', 'Audio smoothness (last minute)',
-            `${lostPct.toFixed(1)}% of audio frames missing or late${lostPct < 1 ? ' (smooth)' : lostPct < 5 ? ' (small hiccups)' : ' (stuttering: the VPS is too busy)'}`);
+            `${lostPct.toFixed(1)}% of audio frames missing or late${lostPct < 1 ? ' (low loss)' : ' (check CPU, GC pauses, network and source failures; cause is not determined)'}`);
         } else {
           add('ok', 'Audio smoothness', 'nothing playing right now: play a song for a minute, then run /diagnostics again');
         }

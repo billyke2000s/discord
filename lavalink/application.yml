@@ -33,9 +33,10 @@ lavalink:
       rotation: false
       channelMix: false
       lowPass: false
-    bufferDurationMs: 400
+    # Native sending buffer tolerates longer JVM pauses; not a forced startup sleep.
+    bufferDurationMs: 1500
     frameBufferDurationMs: 5000
-    opusEncodingQuality: 10
+    opusEncodingQuality: 5
     resamplingQuality: LOW
     trackStuckThresholdMs: 10000
     useSeekGhosting: true

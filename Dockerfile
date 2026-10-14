@@ -17,4 +17,5 @@ COPY package*.json ./
 COPY src ./src
 RUN mkdir -p /app/data /app/locks /app/backups && chown node:node /app/data /app/locks /app/backups
 USER node
+HEALTHCHECK --interval=10s --timeout=3s --start-period=90s --retries=3 CMD node src/lib/health.js
 CMD ["node", "src/index.js"]

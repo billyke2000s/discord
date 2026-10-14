@@ -10,6 +10,8 @@ const antiRaid = require('./lib/antiraid');
 const backup = require('./lib/backup');
 const { embed, log } = require('./lib/util');
 const { syncGuild } = require('./lib/commandsync');
+const { startHealth } = require('./lib/health');
+const { hasCommandPermission } = require('./lib/permissions');
 
 if (!process.env.DISCORD_TOKEN) {
   console.error('DISCORD_TOKEN is missing. Copy .env.example to .env and fill it in.');
@@ -43,6 +45,7 @@ const client = new Client({
 
 // Shoukaku must be created before login so it can catch the READY packet.
 client.music = new MusicManager(client);
+const stopHealth = startHealth(client);
 registerEvents(client);
 
 client.once(Events.ClientReady, async (c) => {
@@ -77,6 +80,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       const cmd = commands.get(interaction.commandName);
+      // Default slash permissions are configurable in Discord; enforce the
+      // command's required permissions again before performing privileged work.
+      if (!hasCommandPermission(cmd, interaction.memberPermissions))
+        return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
       if (cmd) await cmd.execute(interaction);
     } else if (interaction.isButton() || interaction.isModalSubmit()) {
       const handler = findComponent(interaction.customId);
@@ -93,6 +100,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e));
 
 async function shutdown() {
+  stopHealth();
   console.log('Shutting down...');
   for (const q of [...client.music.queues.values()]) await q.destroy();
   await client.destroy();

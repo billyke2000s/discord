@@ -21,6 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Regression tests
+        run: |
+          npm ci
+          npm test
+          python3 -m unittest discover -s tests -p 'test_*.py'
+
       - name: Image name (ghcr.io/<owner>/<repo>, lowercase)
         id: name
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
@@ -56,9 +66,12 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOT_RELEASE_IMAGE: ${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}
         run: |
           tag="v$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}"
-          gh release create "$tag" dist/install.sh \
+          export RELEASE_TAG="$tag"
+          python3 -c 'import json,os; json.dump({"repository":os.environ["GITHUB_REPOSITORY"],"tag":os.environ["RELEASE_TAG"],"commit":os.environ["GITHUB_SHA"],"image":os.environ["BOT_RELEASE_IMAGE"],"deployment":1},open("dist/update.json","w"))'
+          gh release create "$tag" dist/install.sh dist/update.json \
             --title "$tag" \
             --notes "Download **install.sh**, upload it to /root on your VPS and run: \`bash install.sh\`" \
             --latest

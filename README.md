@@ -191,6 +191,12 @@ Roles        Admin · Staff · Member
 
 ## Music
 
+Music startup, playlist loading and buffering changes are explained in
+[the audit](docs/AUDIT.md). Public YouTube playlists can start one track while
+the remaining entries load; Spotify matches the next two tracks during playback.
+Unavailable page formats fall back to the normal loader. No audible playback
+improvement has been measured on the VPS yet.
+
 - `/play` takes a **song name**, a **YouTube** link or playlist, or a **Spotify** link, playlist or album.
 - Each song posts a **panel** in the voice channel's own chat, with a progress bar that updates itself:
 
@@ -242,6 +248,11 @@ Set it back to `no` afterwards.
 ---
 
 ## Looking after it
+
+For optional scheduled updates with backups, health checks and image rollback, see
+[automatic updates](docs/AUTO_UPDATES.md). They are disabled by default and require
+explicit setup on the VPS. The [full audit](docs/AUDIT.md) records confirmed findings,
+remaining risks and the measurements needed to investigate cutouts.
 
 ```bash
 cd /root/server-bot
