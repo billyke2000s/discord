@@ -5,7 +5,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "deploy": "node src/deploy-commands.js"
+    "deploy": "node src/deploy-commands.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/index.js && node --check src/commands/birthday.js && node --check src/commands/birthday-channel.js && node --check src/commands/polls.js && node --check src/commands/game-nights.js && node --check src/commands/server-health.js && node --check src/commands/voice.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
