@@ -7,6 +7,10 @@ const crypto = require('node:crypto');
 const CHARS = 'ACDEFGHJKMNPQRTUVWXY34679';
 const TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
+const REFRESH_COOLDOWN_MS = 10_000;
+const LOCKOUT_MS = 60_000;
+const lastRefresh = new Map();
+const lockedUntil = new Map();
 const challenges = new Map(); // key guildId:userId -> { code, expires, attempts }
 
 function randomCode(len = 5) {
@@ -54,9 +58,14 @@ function render(code) {
 }
 
 function newChallenge(guildId, userId) {
+  const key = `${guildId}:${userId}`;
+  const now = Date.now();
+  if ((lockedUntil.get(key) || 0) > now) return { status: 'locked' };
+  if (now - (lastRefresh.get(key) || 0) < REFRESH_COOLDOWN_MS) return { status: 'cooldown' };
+  lastRefresh.set(key, now);
   const code = randomCode();
   challenges.set(`${guildId}:${userId}`, { code, expires: Date.now() + TTL_MS, attempts: 0 });
-  return render(code);
+  return { status: 'ok', png: render(code) };
 }
 
 // Returns 'ok' | 'wrong' | 'expired' | 'locked'
@@ -66,7 +75,7 @@ function check(guildId, userId, answer) {
   if (!ch || ch.expires < Date.now()) { challenges.delete(key); return 'expired'; }
   if (String(answer).trim().toUpperCase() === ch.code) { challenges.delete(key); return 'ok'; }
   ch.attempts++;
-  if (ch.attempts >= MAX_ATTEMPTS) { challenges.delete(key); return 'locked'; }
+  if (ch.attempts >= MAX_ATTEMPTS) { challenges.delete(key); lockedUntil.set(key, Date.now() + LOCKOUT_MS); return 'locked'; }
   return 'wrong';
 }
 
@@ -74,6 +83,8 @@ function check(guildId, userId, answer) {
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of challenges) if (v.expires < now) challenges.delete(k);
+  for (const [k, v] of lastRefresh) if (now - v > TTL_MS) lastRefresh.delete(k);
+  for (const [k, v] of lockedUntil) if (v <= now) lockedUntil.delete(k);
 }, 60_000).unref();
 
 module.exports = { newChallenge, check, MAX_ATTEMPTS };

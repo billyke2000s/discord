@@ -31,7 +31,9 @@ async function start(interaction) {
   if (antiRaid.isLocked(interaction.guildId))
     return interaction.reply({ content: 'The server is in lockdown right now. Try again in a few minutes.', flags: MessageFlags.Ephemeral });
 
-  const png = captcha.newChallenge(interaction.guildId, interaction.user.id);
+  const challenge = captcha.newChallenge(interaction.guildId, interaction.user.id);
+  if (challenge.status !== 'ok') return interaction.reply({ content: challenge.status === 'locked' ? 'Too many attempts. Try again in a minute.' : 'Please wait 10 seconds before requesting another image.', flags: MessageFlags.Ephemeral });
+  const png = challenge.png;
   // "New image" is clicked on our own ephemeral message: edit it in place instead of stacking new ones
   const isRefresh = interaction.message?.flags?.has(MessageFlags.Ephemeral);
   await interaction[isRefresh ? 'update' : 'reply']({
@@ -62,7 +64,7 @@ async function submit(interaction) {
   if (result === 'wrong') return interaction.reply({ content: '❌ Wrong code, try again.', flags: MessageFlags.Ephemeral });
   if (result === 'expired') return interaction.reply({ content: 'That code expired. Click **New image**.', flags: MessageFlags.Ephemeral });
   if (result === 'locked') {
-    await interaction.reply({ content: 'Too many wrong tries. Click **New image** to start again.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: 'Too many wrong tries. Wait a minute before requesting a new image.', flags: MessageFlags.Ephemeral });
     return log(interaction.guild, embed('warn').setDescription(`⚠️ ${interaction.user} failed the captcha ${captcha.MAX_ATTEMPTS} times.`));
   }
 
@@ -102,11 +104,24 @@ async function sweepUnverified(client) {
     if (!s.verify.enabled || !s.verify.timeoutMinutes) continue;
     if (Date.now() - row.joined_at < s.verify.timeoutMinutes * 60_000) continue;
 
-    db.prepare('DELETE FROM pending_verify WHERE guild_id = ? AND user_id = ?').run(row.guild_id, row.user_id);
-    const member = await guild.members.fetch(row.user_id).catch(() => null);
-    if (!member || member.roles.cache.has(s.verify.memberRole)) continue;
+    let member;
+    try {
+      member = await guild.members.fetch(row.user_id);
+    } catch (error) {
+      if (error.code !== 10007) {
+        console.error('[verify] Member lookup failed:', error);
+        continue;
+      }
+      member = null;
+    }
+    if (!member || member.roles.cache.has(s.verify.memberRole)) {
+      db.prepare('DELETE FROM pending_verify WHERE guild_id = ? AND user_id = ?').run(row.guild_id, row.user_id);
+      continue;
+    }
     await member.send(`You were removed from **${guild.name}** because you didn't verify within ${s.verify.timeoutMinutes} minutes. You can rejoin and try again.`).catch(() => {});
-    await member.kick('Did not verify in time').catch(() => {});
+    const kicked = await member.kick('Did not verify in time').then(() => true).catch((e) => { console.error(`[verify] Failed to kick ${row.user_id}:`, e); return false; });
+    if (!kicked) continue;
+    db.prepare('DELETE FROM pending_verify WHERE guild_id = ? AND user_id = ?').run(row.guild_id, row.user_id);
     await log(guild, embed('grey').setDescription(`👢 ${member.user.tag} kicked: did not verify in ${s.verify.timeoutMinutes} min.`));
   }
 }

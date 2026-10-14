@@ -84,7 +84,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (err) {
     console.error(`[interaction ${interaction.commandName || interaction.customId}]`, err);
-    const msg = { content: `Something went wrong: ${String(err.message).slice(0, 300)}`, flags: MessageFlags.Ephemeral };
+    const msg = { content: 'Something went wrong. Please try again or contact a moderator.', flags: MessageFlags.Ephemeral };
     if (interaction.deferred || interaction.replied) await interaction.followUp(msg).catch(() => {});
     else await interaction.reply(msg).catch(() => {});
   }
