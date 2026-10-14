@@ -122,6 +122,40 @@ at review time. That is not a proof that the bot or dependencies are vulnerabili
 
 ## Validation and rollout
 
+### Playback evidence added after the live report
+
+The owner supplied a report that said music was playing while the audio check said
+"nothing playing". That branch actually means frame statistics were unavailable.
+It now warns rather than passing. A playback monitor records actual player updates
+(not the panel's extrapolated clock), voice connection/ping, node CPU and frame counters
+when supplied. It checks every five seconds during started, unpaused playback: no
+updates for 20 seconds, or unchanged position with fresh updates for 15 seconds,
+become separate warnings. Voice disconnect and ping at or above 1000 ms are recorded.
+Track changes/pause reset the stall window. Warnings are logged once per episode,
+with recovery events; source exceptions, stuck tracks, failed starts and voice closes
+are also recorded without raw exception messages, tokens, track URLs or titles.
+
+`/diagnostics` shows active observations and the most recent issue retained in memory.
+Samples are recorded every 30 seconds while playing. Persistent evidence is saved in
+the SQLite data volume as `/app/data/music-health.jsonl`, with two rotated files
+(`.1`, `.2`), each rotated at approximately 2 MB. Disk writes are asynchronous and
+serialized, with at most 100 pending writes; overload drops observations rather than
+growing memory without a bound. A write failure logs an error code. Evidence survives
+a normal container restart; an observation not yet written when the process stops
+can be lost. Per-guild memory retains only the last 20 events.
+
+Read recent evidence after installing the PR's image:
+
+```bash
+docker compose exec -T bot tail -n 80 /app/data/music-health.jsonl
+```
+
+These observations cannot detect every audible interruption. Player position can
+advance while audio packets fail downstream. No microphone recording, automated
+restart, or root-cause claim is added. Six deterministic monitor tests cover stalled
+position, missing updates, pause/reset, recovery, voice signals, stopped playback,
+and unavailable frame statistics; the JavaScript suite now contains 25 tests.
+
 Run `npm test`, `python3 -m unittest discover -s tests -p 'test_*.py'`, and the installer
 packaging/syntax checks. PR CI exercises these on Linux with Node 22; release CI runs
 the tests before building images. Node tests mock SQLite and avoid bot login; updater

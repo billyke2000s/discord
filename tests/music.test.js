@@ -16,7 +16,7 @@ function queue(find = async (t) => track(t.info.identifier)) {
   player.playTrack = async (p) => { player.played.push(p.track.encoded); };
   player.stopTrack = async () => player.emit('end', { reason: 'stopped', track: { encoded: q.current.encoded } });
   const manager = { client: { guilds: { cache: new Map() } }, queues: new Map(),
-    shoukaku: { leaveVoiceChannel: async () => {} }, findOnYouTube: find };
+    shoukaku: { leaveVoiceChannel: async () => {} }, findOnYouTube: find, recordAudio: () => {} };
   const q = new GuildQueue(manager, 'guild', player, null, 'voice');
   manager.queues.set('guild', q);
   return q;

@@ -4,6 +4,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits: P } =
 const { embed, fmtDuration, truncate, isBotAdmin } = require('./util');
 const spotify = require('./spotify');
 const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlist');
+const { AudioMonitor } = require('./audio-monitor');
 
 const IDLE_LEAVE_MS = 2 * 60 * 1000; // leave after 2 min with empty queue or empty channel
 const MAX_QUEUE = 500;
@@ -96,11 +97,17 @@ class GuildQueue {
     // Our own song clock. Lavalink only reports the position every 5 s, so between reports we
     // count forward from the last one (and stop counting while paused).
     this.clock = { base: 0, at: Date.now() };
+    this.monitor = new AudioMonitor(guildId, manager.recordAudio);
+    this.monitorTimer = setInterval(() => this.monitor.check(this.player.node?.stats), 5000);
+    this.monitorTimer.unref();
 
     player.on('update', (d) => {
+      this.monitor.update(d?.state);
       if (typeof d?.state?.position === 'number') this.clock = { base: d.state.position, at: Date.now() };
     });
     player.on('start', () => {
+      this.monitor.start();
+      this.monitor.pause(this.player.paused);
       this.clock = { base: 0, at: Date.now() };
       this.votes.skip.clear();
       this.votes.stop.clear();
@@ -109,15 +116,20 @@ class GuildQueue {
     player.on('end', (e) => {
       // 'replaced' = we called playTrack over it; 'cleanup' = player destroyed. Don't advance on those.
       if (e.reason === 'replaced' || e.reason === 'cleanup') return;
+      if (!e.track?.encoded || this.current?.encoded === e.track.encoded) this.monitor.stop(e.reason);
       this.advanceAfterEvent(e);
     });
     player.on('stuck', (e) => {
+      this.monitor.emit('track-stuck');
+      if (!e.track?.encoded || this.current?.encoded === e.track.encoded) this.monitor.stop('stuck');
       this.advanceAfterEvent(e);
     });
     player.on('exception', (e) => {
+      // Raw source error text may contain signed URLs or credentials; retain event type only.
+      this.monitor.emit('track-exception');
       this.send(embed('bad').setDescription(`Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**: ${truncate(e.exception?.message || 'unknown error', 200)}. Moving on.`));
     });
-    player.on('closed', () => this.destroy());
+    player.on('closed', () => { this.monitor.emit('voice-closed'); this.destroy(); });
   }
 
   // Where the song is right now, in ms.
@@ -130,6 +142,7 @@ class GuildQueue {
     if (paused === this.player.paused) return;
     this.clock = { base: this.position(), at: Date.now() }; // freeze/restart the clock at the current spot
     await this.player.setPaused(paused);
+    this.monitor.pause(paused);
     this.clock.at = Date.now();
   }
 
@@ -386,6 +399,7 @@ class GuildQueue {
           this.prefetch();
           return;
         } catch (err) {
+          this.monitor.emit('play-request-failed');
           this.send(embed('bad').setDescription(`Could not play that track: ${truncate(err.message, 200)}. Moving on.`));
           continue;
         }
@@ -426,6 +440,8 @@ class GuildQueue {
   async destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    clearInterval(this.monitorTimer);
+    this.monitor.stop('session-destroyed');
     this.revision++;
     this.tracks.length = 0;
     this.clearIdle();

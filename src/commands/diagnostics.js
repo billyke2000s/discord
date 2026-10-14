@@ -127,6 +127,10 @@ const diagnostics = {
       add(sp.tracks.length ? 'ok' : 'fail', 'Spotify links', sp.tracks.length ? `reading Spotify works (test song: ${sp.tracks[0].title})` : 'no songs read');
     });
     const q = client.music.get(g.id);
+    if (q?.monitor) {
+      q.monitor.check(node?.stats);
+      add(q.monitor.alerts.size || !q.monitor.last ? 'warn' : 'ok', 'Playback observations', q.monitor.summary());
+    }
     add('ok', 'Music right now', q?.current ? `playing in <#${q.voiceChannelId}> · ${q.tracks.length} queued` : 'idle');
 
     // --- protection ---
