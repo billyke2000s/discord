@@ -12,7 +12,6 @@ const modules = [
   require('./birthday'),
   require('./birthday-channel'),
   require('./polls'),
-  require('./game-nights'),
   require('./server-health'),
 ];
 
