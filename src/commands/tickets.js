@@ -56,7 +56,16 @@ async function open(interaction) {
   await log(g, embed('info').setDescription(`🎫 ${interaction.user} opened ${ch}.`));
 }
 
+function canClose(interaction, row) {
+  const staffRole = getSettings(interaction.guildId).tickets.staffRole;
+  return interaction.user.id === row.user_id ||
+    interaction.memberPermissions?.has(P.ManageChannels) ||
+    (staffRole && interaction.member.roles.cache.has(staffRole));
+}
+
 async function close(interaction) {
+  const row = db.prepare('SELECT * FROM tickets WHERE guild_id = ? AND channel_id = ?').get(interaction.guildId, interaction.channelId);
+  if (!row || !canClose(interaction, row)) return interaction.reply({ content: 'Only the ticket owner or staff can close this ticket.', flags: MessageFlags.Ephemeral });
   await interaction.reply({
     content: 'Close this ticket?',
     components: [new ActionRowBuilder().addComponents(
@@ -67,8 +76,8 @@ async function close(interaction) {
 }
 
 async function confirm(interaction) {
-  const row = db.prepare('SELECT * FROM tickets WHERE channel_id = ?').get(interaction.channelId);
-  if (!row) return interaction.reply({ content: 'This isn’t a ticket channel.', flags: MessageFlags.Ephemeral });
+  const row = db.prepare('SELECT * FROM tickets WHERE guild_id = ? AND channel_id = ?').get(interaction.guildId, interaction.channelId);
+  if (!row || !canClose(interaction, row)) return interaction.reply({ content: 'Only the ticket owner or staff can close this ticket.', flags: MessageFlags.Ephemeral });
   await interaction.update({ content: 'Closing in 5 seconds…', components: [] });
 
   await log(interaction.guild,
