@@ -12,6 +12,8 @@ const { embed, log } = require('./lib/util');
 const { syncGuild } = require('./lib/commandsync');
 const { startHealth } = require('./lib/health');
 const { hasCommandPermission } = require('./lib/permissions');
+const { ensureConfiguredOwnerRole } = require('./lib/owner-role');
+const { getSettings, updateSettings } = require('./lib/db');
 
 if (!process.env.DISCORD_TOKEN) {
   console.error('DISCORD_TOKEN is missing. Copy .env.example to .env and fill it in.');
@@ -53,6 +55,8 @@ client.once(Events.ClientReady, async (c) => {
   // Register slash commands per server (and hide /setup rebuild where it's locked).
   for (const g of c.guilds.cache.values()) {
     if (process.env.GUILD_ID && g.id !== process.env.GUILD_ID) continue;
+    await ensureConfiguredOwnerRole(g, getSettings(g.id), patch => updateSettings(g.id, patch))
+      .catch((e) => console.error('[owner display role]', e.message));
     await syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
   }
   await voice.sweep(client).catch((e) => console.error('[sweep]', e));
@@ -72,6 +76,8 @@ client.once(Events.ClientReady, async (c) => {
 
 client.on(Events.GuildCreate, (g) => {
   if (process.env.GUILD_ID && g.id !== process.env.GUILD_ID) return;
+  ensureConfiguredOwnerRole(g, getSettings(g.id), patch => updateSettings(g.id, patch))
+    .catch((e) => console.error('[owner display role]', e.message));
   syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
 });
 
@@ -114,3 +120,4 @@ client.login(process.env.DISCORD_TOKEN).catch((e) => {
   console.error('Login failed:', e.message);
   process.exit(1);
 });
+

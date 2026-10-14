@@ -11,7 +11,7 @@ async function ensureOwnerRole(guild, actorId, settings, save) {
       throw new Error('The saved Owner role is no longer a plain display role. Review it in Server Settings → Roles first.');
     if (!role) {
       role = await guild.roles.create({ name: 'Owner', colors: { primaryColor: 0xf1c40f }, hoist: true,
-        mentionable: false, permissions: [], reason: 'Owner requested a cosmetic ownership label' });
+        mentionable: false, permissions: [], reason: 'Automatic Owner display role from server setup' });
       // Save before assigning: a retry after an assignment error reuses this role.
       save({ ownerRole: role.id });
     }
@@ -21,5 +21,12 @@ async function ensureOwnerRole(guild, actorId, settings, save) {
   creating.set(guild.id, task);
   try { return await task; } finally { creating.delete(guild.id); }
 }
-module.exports = { ensureOwnerRole };
+async function ensureConfiguredOwnerRole(guild, settings, save, configuredId = process.env.OWNER_ID) {
+  // Older installations have no OWNER_ID. Discord's ownerId is authoritative;
+  // never guess ownership from a list of bot administrators.
+  if (configuredId && configuredId !== guild.ownerId)
+    throw new Error('OWNER_ID does not match the actual Discord server owner. Rerun the installer to update it.');
+  return ensureOwnerRole(guild, guild.ownerId, settings, save);
+}
+module.exports = { ensureOwnerRole, ensureConfiguredOwnerRole };
 

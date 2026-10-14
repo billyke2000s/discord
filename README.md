@@ -97,6 +97,7 @@ The installer:
 3. **Asks for:**
    - the bot token, which it checks with Discord
    - your server ID; if the bot isn't in the server yet, it prints the invite link and waits
+   - the owner's user ID (prefilled from Discord and checked against the actual server owner)
    - your admin user ID(s)
    - whether to set up YouTube. If yes, it shows a code to enter at google.com/device with the throwaway account.
 
@@ -185,7 +186,6 @@ Roles        Admin · Staff · Member
 | Command | What it does |
 |---|---|
 | `/setup restyle` | Add the `emoji・name` style to channel names (renames only) |
-| `/setup ownerrole` | Actual server owner only: create or restore an Owner display role; no extra permissions |
 | `/setup rebuild` | ⚠️ **Wipes and rebuilds the server.** Locked after its first use. |
 
 ---
@@ -232,6 +232,15 @@ improvement has been measured on the VPS yet.
 ---
 
 ## Who can reset the server
+
+The installer asks for the owner's ID and defaults the bot-admin prompt to that same
+ID on a new installation. The bot automatically creates/reuses an **Owner** display
+role and assigns it to the actual server owner at startup and after a rebuild.
+There is no role command. It adds no permissions and does not transfer ownership;
+extra bot admins do not receive it. Older installations without `OWNER_ID` use
+Discord's actual owner ID. A configured mismatch is reported instead of assigning
+the label to a different account. The bot needs Manage Roles and sufficient role
+hierarchy to create/assign the label; move it in Roles to choose its display position.
 
 - **Only the server owner and the IDs in `BOT_ADMIN_IDS`** can run `/setup rebuild` or `/setup restyle`. Having Discord's Administrator permission isn't enough.
 - Members and Staff can't see `/setup` at all.

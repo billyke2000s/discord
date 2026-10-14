@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ensureOwnerRole } = require('../src/lib/owner-role');
+const { ensureOwnerRole, ensureConfiguredOwnerRole } = require('../src/lib/owner-role');
 function fixture() {
   const saved = {}; const assigned = []; let creates = 0;
   const role = { id: 'role', permissions: { bitfield: 0n }, managed: false };
@@ -32,5 +32,16 @@ test('an assignment failure keeps the saved role for a retry', async () => {
   const f = fixture(); f.guild.fetchOwner = async () => ({ roles: { add: async () => { throw new Error('hierarchy'); } } });
   await assert.rejects(ensureOwnerRole(f.guild, 'owner', f.saved, f.save), /hierarchy/);
   assert.equal(f.saved.ownerRole, 'role'); assert.equal(f.count(), 1);
+});
+test('configured ownership is validated before creating a role', async () => {
+  const f = fixture();
+  await assert.rejects(ensureConfiguredOwnerRole(f.guild, {}, f.save, 'other-admin'), /does not match/);
+  assert.equal(f.count(), 0);
+  await ensureConfiguredOwnerRole(f.guild, f.saved, f.save, 'owner');
+  assert.equal(f.count(), 1);
+});
+test('old installations use the actual owner, not bot-admin guesses', async () => {
+  const f = fixture(); await ensureConfiguredOwnerRole(f.guild, f.saved, f.save, '');
+  assert.deepEqual(f.assigned, ['role']);
 });
 

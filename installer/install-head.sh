@@ -143,15 +143,27 @@ while :; do
   if ! is_id "${GUILD_ID:-}"; then GUILD_ID="$(ask 'Server ID (right-click the server icon -> Copy Server ID)')"; fi
   is_id "$GUILD_ID" || { warn "That doesn't look like an ID (17-20 digits)."; GUILD_ID=""; continue; }
   resp="$(discord_get "/guilds/$GUILD_ID")"; code="${resp##*$'\n'}"; body="${resp%$'\n'*}"
-  if [ "$code" = 200 ]; then ok "Bot is in ${B}$(echo "$body" | json name)${N}"; break; fi
+  if [ "$code" = 200 ]; then
+    SERVER_OWNER_ID="$(echo "$body" | json owner_id)"
+    is_id "$SERVER_OWNER_ID" || die 'Discord did not return a valid server owner ID.'
+    ok "Bot is in ${B}$(echo "$body" | json name)${N}"; break
+  fi
   echo
   echo "  The bot isn't in that server yet. Open this link, pick the server, click Authorise:"
   echo "    ${B}${INVITE}${N}"
   pause
 done
 
-step "Bot admins"
+step "Server owner and bot admins"
+echo "  Discord reports the server owner as $SERVER_OWNER_ID."
+echo "  The Owner display role is assigned automatically to that account; it adds no permissions."
+while :; do
+  OWNER_ID="$(ask 'Owner user ID (press Enter to use the server owner above)' "$SERVER_OWNER_ID")"
+  if is_id "$OWNER_ID" && [ "$OWNER_ID" = "$SERVER_OWNER_ID" ]; then break; fi
+  warn 'That ID must match the actual server owner. Extra trusted users belong in Bot admins below.'
+done
 ADMINS="$(envget BOT_ADMIN_IDS)"
+ADMINS="${ADMINS:-$OWNER_ID}"
 echo "  Bot admins can run /setup rebuild and moderate anyone below the bot."
 echo "  Your ID: right-click your own name -> Copy User ID. Several? separate with commas."
 while :; do
@@ -284,6 +296,7 @@ write_env() {
 DISCORD_TOKEN=$TOKEN
 CLIENT_ID=$CLIENT_ID
 GUILD_ID=$GUILD_ID
+OWNER_ID=$OWNER_ID
 BOT_ADMIN_IDS=$ADMINS
 LAVALINK_PASSWORD=$LL_PASS
 CIPHER_TOKEN=$CIPHER
@@ -441,3 +454,4 @@ cat <<EOF
 EOF
 exit 0
 __PAYLOAD_BELOW__
+

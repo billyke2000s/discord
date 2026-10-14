@@ -16,7 +16,6 @@ const help = {
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
       let admin = '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` or `/diagnosis` (grouped checks, server resources and a small speed test; 1-minute cooldown)';
       if (isOwner(interaction.user, interaction.guild)) {
-        if (interaction.user.id === interaction.guild.ownerId) admin += '\nServer owner: `/setup ownerrole` adds an Owner display role.';
         const locked = rebuildLocked(interaction.guildId);
         admin += locked ? '\nOwner: `/setup restyle` (`/setup rebuild` is locked)' : '\nOwner: `/setup restyle` `/setup rebuild`';
       }
