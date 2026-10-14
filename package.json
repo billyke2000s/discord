@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "deploy": "node src/deploy-commands.js"
+    "deploy": "node src/deploy-commands.js",
+    "check": "node --check src/index.js && node --check src/commands/tickets.js && node --check src/commands/verify.js && node --check src/lib/captcha.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
