@@ -325,7 +325,8 @@ class GuildQueue {
 
   importRemaining(loader, first, requester, report) {
     // Keep a short track's empty queue alive until its import finishes.
-    this.clearIdle();
+    // Do not clear the empty-voice-channel leave timer when listeners departed.
+    if (!this.current && this.listeners().size) this.clearIdle();
     const task = Promise.resolve().then(async () => {
       try {
         const result = await loader();
