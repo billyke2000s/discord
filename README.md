@@ -175,7 +175,7 @@ Roles        Admin · Staff · Member
 ### Admins
 | Command | What it does |
 |---|---|
-| `/diagnostics` or `/diagnosis` | Grouped health checks, resource samples, playback warnings and a small internet speed test; once every 5 minutes |
+| `/diagnostics` or `/diagnosis` | Grouped health checks, resource samples, playback warnings and a small internet speed test; once every minute |
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
@@ -185,6 +185,7 @@ Roles        Admin · Staff · Member
 | Command | What it does |
 |---|---|
 | `/setup restyle` | Add the `emoji・name` style to channel names (renames only) |
+| `/setup ownerrole` | Actual server owner only: create or restore an Owner display role; no extra permissions |
 | `/setup rebuild` | ⚠️ **Wipes and rebuilds the server.** Locked after its first use. |
 
 ---
@@ -255,7 +256,7 @@ explicit setup on the VPS. The [full audit](docs/AUDIT.md) records confirmed fin
 remaining risks and the measurements needed to investigate cutouts.
 
 The [diagnostic guide](docs/DIAGNOSTICS.md) explains the grouped report, load categories,
-small internet speed test, limits and five-minute cooldown.
+small internet speed test, limits and one-minute cooldown.
 
 ```bash
 cd /root/server-bot
@@ -340,3 +341,4 @@ docker compose up -d bot
 ## Credits
 
 Built on [discord.js](https://discord.js.org), [Lavalink](https://github.com/lavalink-devs/Lavalink), [Shoukaku](https://github.com/shipgirlproject/Shoukaku), [youtube-source](https://github.com/lavalink-devs/youtube-source) (MIT, see `tools/README.md`), [spotify-url-info](https://github.com/microlinkhq/spotify-url-info) (MIT) and [yt-cipher](https://github.com/kikkia/yt-cipher). Scam lists: [nikolaischunk/discord-phishing-links](https://github.com/nikolaischunk/discord-phishing-links) and [Discord-AntiScam/scam-links](https://github.com/Discord-AntiScam/scam-links).
+

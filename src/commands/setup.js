@@ -5,6 +5,7 @@ const { embed, truncate, isOwner } = require('../lib/util');
 const verify = require('./verify');
 const tickets = require('./tickets');
 const rebuild = require('../lib/rebuild');
+const { ensureOwnerRole } = require('../lib/owner-role');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const P = PermissionFlagsBits;
@@ -46,6 +47,7 @@ const setup = {
   data: new SlashCommandBuilder().setName('setup').setDescription('Configure the bot')
     .setDefaultMemberPermissions(P.ManageGuild)
     .addSubcommand((s) => s.setName('show').setDescription('Show current settings'))
+    .addSubcommand((s) => s.setName('ownerrole').setDescription('SERVER OWNER ONLY: add an Owner display role (no extra permissions)'))
     .addSubcommand((s) => s.setName('logs').setDescription('Where mod actions, deletes, edits, joins get logged')
       .addChannelOption((o) => o.setName('channel').setDescription('Log channel (blank = off)').addChannelTypes(...text)))
     .addSubcommand((s) => s.setName('welcome').setDescription('Welcome message (sent after verification if that is on)')
@@ -84,6 +86,15 @@ const setup = {
     const done = (msg) => interaction.reply({ embeds: [embed('ok').setDescription(msg)], flags: MessageFlags.Ephemeral });
 
     switch (sub) {
+      case 'ownerrole': {
+        if (interaction.user.id !== interaction.guild.ownerId)
+          return interaction.reply({ content: 'Only the actual server owner can use this.', flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+          const role = await ensureOwnerRole(interaction.guild, interaction.user.id, getSettings(g), patch => updateSettings(g, patch));
+          return interaction.editReply(`Owner display role ${role} assigned to you. It adds no permissions; Discord ownership already gives you owner access. You can move the role in Server Settings → Roles to choose its display position.`);
+        } catch (err) { return interaction.editReply(`Could not set up the Owner display role: ${truncate(err.message, 200)}`); }
+      }
       case 'show': {
         const s = getSettings(g);
         const c = (id) => (id ? `<#${id}>` : '*off*');
@@ -246,3 +257,4 @@ const setup = {
 };
 
 module.exports = { commands: [setup], components: { 'rebuild:confirm': rebuildConfirm, 'rebuild:modal': rebuildSubmit } };
+

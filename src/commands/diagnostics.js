@@ -218,7 +218,7 @@ const diagnostics = {
     const report = formatReport(results);
     await interaction.editReply({
       embeds: [embed(report.color).setTitle(report.title).setDescription(report.description.slice(0, 700)).addFields(report.fields)
-        .setFooter({ text: '✅ checked · ⚠️ review · ❌ failed · ❔ unmeasured · ➖ off/info. Shared cooldown: 5 minutes.' })],
+        .setFooter({ text: '✅ checked · ⚠️ review · ❌ failed · ❔ unmeasured · ➖ off/info. Shared cooldown: 1 minute.' })],
       files: [new AttachmentBuilder(Buffer.from(`Bot diagnostic snapshot\n${new Date().toISOString()}\n\n${report.fullText}\n\nAudible quality and packet loss are not measured.`, 'utf8'), { name: 'bot-diagnostics.txt' })],
     });
     } finally { lease.release(); }
@@ -227,3 +227,4 @@ const diagnostics = {
 
 const diagnosis = { ...diagnostics, data: new SlashCommandBuilder().setName('diagnosis').setDescription('Check the bot, music, server load and internet speed (admins only)').setDefaultMemberPermissions(P.ManageGuild) };
 module.exports = { commands: [diagnostics, diagnosis] };
+

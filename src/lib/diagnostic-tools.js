@@ -4,7 +4,7 @@ const { performance, monitorEventLoopDelay } = require('node:perf_hooks');
 const { setTimeout: delay } = require('node:timers/promises');
 
 class DiagnosticGate {
-  constructor(cooldownMs = 300_000, now = Date.now) { this.cooldownMs = cooldownMs; this.now = now; this.running = false; this.until = 0; }
+  constructor(cooldownMs = 60_000, now = Date.now) { this.cooldownMs = cooldownMs; this.now = now; this.running = false; this.until = 0; }
   acquire() {
     if (this.running) return { ok: false, message: 'A bot check is already running. Wait for it to finish.' };
     if (this.now() < this.until) return { ok: false, message: `Please wait ${Math.ceil((this.until - this.now()) / 1000)} seconds before running another check. The limit is shared by both diagnostic commands and all admins.` };
@@ -142,3 +142,4 @@ function formatReport(results) {
   };
 }
 module.exports = { DiagnosticGate, parseCpu, cpuDelta, parseMemory, sampleResources, speedTest, formatReport, describePlayback, DOWN_BYTES, UP_BYTES };
+

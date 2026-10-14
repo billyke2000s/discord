@@ -57,6 +57,7 @@ const DEFAULTS = {
   logChannel: null,
   welcomeChannel: null,
   rebuildDone: false,        // set after a successful /setup rebuild; locks the command
+  ownerRole: null,           // optional cosmetic role assigned only to the actual server owner
   welcomeMessage: 'Welcome {user} to **{server}**!',
   verify: {
     enabled: false,
@@ -117,3 +118,4 @@ function updateSettings(guildId, patch) {
 }
 
 module.exports = { db, getSettings, updateSettings };
+

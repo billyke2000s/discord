@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const { DiagnosticGate, parseCpu, cpuDelta, parseMemory, speedTest, formatReport, describePlayback, DOWN_BYTES, UP_BYTES } = require('../src/lib/diagnostic-tools');
 
 test('one shared gate rejects concurrent checks, enforces cooldown, and releases after failure', () => {
-  let now = 1000; const gate = new DiagnosticGate(300000, () => now);
+  let now = 1000; const gate = new DiagnosticGate(undefined, () => now);
   const first = gate.acquire(); assert.equal(first.ok, true);
   assert.match(gate.acquire().message, /already running/);
-  first.release(); assert.match(gate.acquire().message, /300 seconds/);
-  now += 299999; assert.equal(gate.acquire().ok, false);
+  first.release(); assert.match(gate.acquire().message, /60 seconds/);
+  now += 59999; assert.equal(gate.acquire().ok, false);
   now++; const next = gate.acquire(); assert.equal(next.ok, true); next.release();
 });
 test('CPU parsing excludes guest double counting and reports IO/hypervisor wait separately', () => {
@@ -69,3 +69,4 @@ test('playback wording is understandable and paused playback is informational', 
   assert.match(describePlayback(m, 2000).detail, /audio source reported an error/);
   assert.equal(describePlayback(m, 400000).status, 'ok');
 });
+

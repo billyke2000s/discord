@@ -2,7 +2,7 @@
 
 Admins can use `/diagnostics` or `/diagnosis`; both commands produce the same private
 report and use the same cooldown. One check can run at a time, and all admins/guilds
-share one check every five minutes. A rejected request performs no resource sampling,
+share one check every minute. A rejected request performs no resource sampling,
 database checks or network test. The cooldown begins when a request is accepted,
 including when it later fails. It is held in memory and resets on bot restart.
 
@@ -74,3 +74,4 @@ permissions, resource parsing, report priority/size/full attachment, sample limi
 incomplete/oversized responses, cancellation, and understandable playback wording.
 The bounded test completed against the real endpoint from the development computer;
 that verifies endpoint integration, not the VPS's network performance.
+
