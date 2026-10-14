@@ -9,6 +9,10 @@ const modules = [
   require('./setup'),
   require('./help'),
   require('./diagnostics'),
+  require('./birthday'),
+  require('./birthday-channel'),
+  require('./polls'),
+  require('./server-health'),
 ];
 
 const commands = new Map();       // name -> { data, execute }

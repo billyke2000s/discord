@@ -1,0 +1,8 @@
+const {SlashCommandBuilder,PermissionFlagsBits:P,MessageFlags}=require('discord.js');
+const {db,getSettings}=require('../lib/db');const {embed}=require('../lib/util');
+const command={data:new SlashCommandBuilder().setName('server-health').setDescription('Private community overview for moderators').setDefaultMemberPermissions(P.ManageGuild),
+async execute(i){if(!i.memberPermissions.has(P.ManageGuild))return i.reply({content:'Manage Server permission required.',flags:MessageFlags.Ephemeral});
+const g=i.guildId,s=getSettings(g),n=(sql)=>db.prepare(sql).get(g).n;
+const pending=n('SELECT COUNT(*) n FROM pending_verify WHERE guild_id=?'),tickets=n('SELECT COUNT(*) n FROM tickets WHERE guild_id=?'),warnings=n('SELECT COUNT(*) n FROM warnings WHERE guild_id=?'),rooms=n('SELECT COUNT(*) n FROM temp_vcs WHERE guild_id=?'),polls=n('SELECT COUNT(*) n FROM community_polls WHERE guild_id=? AND closed=0'),games=n('SELECT COUNT(*) n FROM game_nights WHERE guild_id=? AND closed=0'),birthdays=n('SELECT COUNT(*) n FROM birthdays WHERE guild_id=?');
+return i.reply({flags:MessageFlags.Ephemeral,embeds:[embed('info').setTitle('Server health').addFields({name:'Community',value:`Members: ${i.guild.memberCount}\nBirthdays opted in: ${birthdays}\nUpcoming game nights: ${games}\nOpen polls: ${polls}`},{name:'Moderation',value:`Pending verification: ${pending}\nOpen tickets: ${tickets}\nWarnings recorded: ${warnings}\nTemporary voice rooms: ${rooms}`},{name:'Configuration',value:`Verification: ${s.verify.enabled?'on':'off'}\nScam filter: ${s.scamFilter.enabled?'on':'off'}\nBirthday channel: ${s.birthdayChannel?'<#'+s.birthdayChannel+'>':'not set'}`})]});}};
+module.exports={commands:[command]};

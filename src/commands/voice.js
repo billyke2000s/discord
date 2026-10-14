@@ -32,6 +32,8 @@ const vc = {
       .addStringOption((o) => o.setName('name').setDescription('New name').setMaxLength(100).setRequired(true)))
     .addSubcommand((s) => s.setName('kick').setDescription('Kick someone out and block them from rejoining')
       .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)))
+    .addSubcommand((s) => s.setName('invite').setDescription('Allow a member into your locked room')
+      .addUserOption((o) => o.setName('user').setDescription('Member to invite').setRequired(true)))
     .addSubcommand((s) => s.setName('transfer').setDescription('Give ownership to someone in the channel')
       .addUserOption((o) => o.setName('user').setDescription('New owner').setRequired(true))),
 
@@ -78,6 +80,14 @@ const vc = {
           await channel.permissionOverwrites.edit(u.id, { Connect: false });
           if (target?.voice.channelId === channel.id) await target.voice.disconnect('Kicked from temp VC by owner');
           return interaction.reply({ embeds: [embed('ok').setDescription(`${u} was kicked and can’t rejoin.`)] });
+        }
+        case 'invite': {
+          const u = interaction.options.getUser('user', true);
+          if (u.bot) return interaction.reply({ content: 'Choose a member, not a bot.', flags: MessageFlags.Ephemeral });
+          const member = await interaction.guild.members.fetch(u.id).catch(() => null);
+          if (!member) return interaction.reply({ content: 'That member is not in the server.', flags: MessageFlags.Ephemeral });
+          await channel.permissionOverwrites.edit(u.id, { ViewChannel: true, Connect: true });
+          return interaction.reply({ content: `${u} can now join ${channel}.`, allowedMentions: { users: [u.id] } });
         }
         case 'transfer': {
           const u = interaction.options.getUser('user', true);
