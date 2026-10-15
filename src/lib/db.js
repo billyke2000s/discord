@@ -58,6 +58,8 @@ const DEFAULTS = {
   welcomeChannel: null,
   rebuildDone: false,        // set after a successful /setup rebuild; locks the command
   ownerRole: null,           // optional cosmetic role assigned only to the actual server owner
+  birthdayChannel: null,
+  birthdayRole: null,
   welcomeMessage: 'Welcome {user} to **{server}**!',
   verify: {
     enabled: false,

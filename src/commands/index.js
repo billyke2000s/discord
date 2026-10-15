@@ -1,5 +1,6 @@
 // Collects every command and button/modal handler from the modules in this folder.
 const modules = [
+  require('./birthday'),
   require('./music'),
   require('./voice'),
   require('./verify'),
@@ -33,3 +34,4 @@ function findComponent(customId) {
 }
 
 module.exports = { commands, findComponent };
+

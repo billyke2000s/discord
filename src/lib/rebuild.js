@@ -248,6 +248,8 @@ async function run(guild, owner) {
     for (const t of ['temp_vcs', 'tickets', 'pending_verify']) db.prepare(`DELETE FROM ${t} WHERE guild_id = ?`).run(guild.id);
     updateSettings(guild.id, {
       logChannel: c.modlogs,
+      birthdayChannel: c.birthdays,
+      birthdayRole: null,
       welcomeChannel: c.general,
       welcomeMessage: `Welcome {user} to **{server}**! Say hi in <#${c.intros}>.`,
       verify: { enabled: true, memberRole: r.member },

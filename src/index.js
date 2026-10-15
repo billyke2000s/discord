@@ -5,6 +5,7 @@ const { commands, findComponent } = require('./commands');
 const registerEvents = require('./events');
 const voice = require('./commands/voice');
 const verify = require('./commands/verify');
+const birthday = require('./commands/birthday');
 const scamfilter = require('./lib/scamfilter');
 const antiRaid = require('./lib/antiraid');
 const backup = require('./lib/backup');
@@ -67,7 +68,9 @@ client.once(Events.ClientReady, async (c) => {
   });
   if (locked) console.log(`[lockdown] ${locked} lockdown(s) still active after restart`);
   backup.start();
+  birthday.sweep(client).catch(e => console.error('[birthday]', e.message));
   setInterval(() => {
+    birthday.sweep(client).catch(e => console.error('[birthday]', e.message));
     verify.sweepUnverified(client).catch((e) => console.error('[verify sweep]', e));
     // empty join-to-create channels older than 10 min
     voice.sweep(client, 10 * 60_000).catch((e) => console.error('[vc sweep]', e));
