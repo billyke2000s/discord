@@ -114,7 +114,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (err) {
     console.error(`[interaction ${interaction.commandName || interaction.customId}]`, err);
     const msg = {
-      content: `Something went wrong: ${String(err.message).slice(0, 300)}`,
+      // Raw errors can contain internal details; the full error is in the bot log above.
+      content:
+        'Something went wrong with that. Try again, and if it keeps happening, tell staff (details are in the bot log).',
       flags: MessageFlags.Ephemeral,
     };
     if (interaction.deferred || interaction.replied) await interaction.followUp(msg).catch(() => {});
