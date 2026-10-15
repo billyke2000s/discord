@@ -209,6 +209,18 @@ const setup = {
         .addStringOption((o) => o.setName('unallow').setDescription('Remove a domain from the allow list')),
     )
     .addSubcommand((s) =>
+      s
+        .setName('commands')
+        .setDescription('Post (or refresh) the list of member commands in a channel')
+        .addChannelOption((o) =>
+          o
+            .setName('channel')
+            .setDescription('Default: the bot-commands channel')
+            .addChannelTypes(ChannelType.GuildText),
+        )
+        .addBooleanOption((o) => o.setName('off').setDescription('Stop posting the list')),
+    )
+    .addSubcommand((s) =>
       s.setName('restyle').setDescription('Rename the rebuilt channels to the emoji・name style (nothing is deleted)'),
     )
     .addSubcommand((s) =>
@@ -331,10 +343,16 @@ const setup = {
             defaultLimit: opt.getInteger('default_limit') ?? 0,
           },
         });
+        await require('../lib/command-guide')
+          .postGuide(interaction.guild)
+          .catch(() => {});
         return done(`Join ${lobby} to get your own channel. Owners use \`/vc\` to control it.`);
       }
       case 'joinvoice-off':
         updateSettings(g, { jtc: { lobbyChannel: null } });
+        await require('../lib/command-guide')
+          .postGuide(interaction.guild)
+          .catch(() => {});
         return done('Join-to-create off.');
       case 'tickets': {
         const ch = opt.getChannel('panel_channel', true);
@@ -369,6 +387,27 @@ const setup = {
           `Scam filter **${s2.scamFilter.enabled ? 'on' : 'off'}** · timeout ${s2.scamFilter.timeoutHours}h · mass-ping links ${s2.scamFilter.blockMassPingLinks ? 'blocked' : 'allowed'} · cross-channel spam ${s2.scamFilter.crossChannelSpam || 'off'}\n` +
             `Known scam domains loaded: **${st.size}**${st.lastLoaded ? ` (updated <t:${Math.floor(st.lastLoaded / 1000)}:R>)` : ''}\nAllow list: ${s2.scamFilter.allow.join(', ') || 'none'}`,
         );
+      }
+      case 'commands': {
+        if (opt.getBoolean('off')) {
+          updateSettings(g, { commandsGuide: { channel: 'off', messageId: null } });
+          return done('The command list won’t be posted any more. The old message stays until you delete it.');
+        }
+        const ch = opt.getChannel('channel');
+        if (ch) updateSettings(g, { commandsGuide: { channel: ch.id, messageId: null } });
+        else if (getSettings(g).commandsGuide.channel === 'off')
+          updateSettings(g, { commandsGuide: { channel: null, messageId: null } });
+        const { message, reason } = await require('../lib/command-guide').postGuide(interaction.guild);
+        if (!message)
+          return interaction.reply({
+            content:
+              reason === 'no bot-commands channel'
+                ? 'I couldn’t find a bot-commands channel. Pick one: `/setup commands channel:#…`'
+                : `I ${reason}. Check my permissions there.`,
+            flags: MessageFlags.Ephemeral,
+          });
+        return done(`Command list posted and pinned: ${message.url}
+It updates itself whenever the bot restarts.`);
       }
       case 'restyle': {
         if (!isOwner(interaction.user, interaction.guild))

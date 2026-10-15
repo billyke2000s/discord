@@ -427,6 +427,7 @@ async function run(guild, owner) {
       tickets: { staffRole: r.staff, categoryId: c.catTickets },
       selfPromo: { channel: c.selfpromo },
       suggestions: { channel: c.suggestions },
+      commandsGuide: { channel: c.botcmds, messageId: null },
     });
 
     // 10. Panels
@@ -448,6 +449,9 @@ async function run(guild, owner) {
           .setDescription('Post one idea per message. The bot adds 👍/👎 and opens a thread for discussion.'),
       ],
     });
+    await require('./command-guide')
+      .postGuide(guild)
+      .catch((e) => report.push(`⚠️ Couldn’t post the command list: ${e.message}`));
 
     require('./commandsync').markRebuildDone(guild.id); // lock /setup rebuild from now on (database + lock file)
     // remove /setup rebuild from this server's command list

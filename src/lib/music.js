@@ -603,7 +603,7 @@ class GuildQueue {
         for (const t of tracks) t.requester = requester;
         const added = this.add(tracks);
         await this.start();
-        await report({ added, omitted: tracks.length - added, playlist: result.playlist, limited: !!result.limited });
+        await report({ added, omitted: tracks.length - added, playlist: result.playlist });
       } catch (err) {
         if (!this.destroyed) await report({ error: err.message });
       } finally {
@@ -873,7 +873,7 @@ class MusicManager {
           artworkUrl: null,
         },
       }));
-      return sp.type === 'track' ? { tracks } : { tracks, playlist: sp.name, limited: !!sp.limited };
+      return sp.type === 'track' ? { tracks } : { tracks, playlist: sp.name };
     }
     const isUrl = /^https?:\/\//i.test(query);
     if (isUrl && !isSupportedLink(query)) {
@@ -914,14 +914,12 @@ class MusicManager {
       return {
         tracks,
         ...(sp.type === 'track' ? {} : { playlist: sp.name }),
-        limited: !!sp.limited,
         ...(sp.remaining
           ? {
               remaining: async () => {
                 const rest = await sp.remaining();
                 return {
                   playlist: rest.name,
-                  limited: !!rest.limited,
                   tracks: rest.tracks.map((t) => ({
                     encoded: null,
                     search: `${t.title} ${t.artist}`.trim(),

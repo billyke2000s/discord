@@ -13,6 +13,7 @@ const backup = require('./lib/backup');
 const live = require('./lib/live');
 const { embed, log } = require('./lib/util');
 const { syncGuild } = require('./lib/commandsync');
+const commandGuide = require('./lib/command-guide');
 const { startHealth } = require('./lib/health');
 const { hasCommandPermission } = require('./lib/permissions');
 const { ensureConfiguredOwnerRole } = require('./lib/owner-role');
@@ -62,6 +63,7 @@ client.once(Events.ClientReady, async (c) => {
       console.error('[owner display role]', e.message),
     );
     await syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
+    await commandGuide.postGuide(g).catch((e) => console.error(`[command guide] ${g.name}:`, e.message));
   }
   await voice.sweep(client).catch((e) => console.error('[sweep]', e));
   // Music that was playing before the restart carries on (if the music server is already connected).

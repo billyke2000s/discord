@@ -100,6 +100,10 @@ const DEFAULTS = {
     stackRewards: true, // keep lower reward roles (false = only the highest)
     ignoredChannels: [], // no XP in these channels
   },
+  commandsGuide: {
+    channel: null, // where the public command list is posted (null = a channel named bot-commands, 'off' = none)
+    messageId: null,
+  },
   live: {
     channel: null, // where live and new-video posts go (/live setup)
     pingRole: null, // role pinged with each post, or null

@@ -103,7 +103,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 
 ## Commands
 
-`/help` in Discord shows only the commands the person asking can use.
+`/help` in Discord shows only the commands the person asking can use. The bot also keeps a pinned list of the member commands in 🤖・bot-commands (any channel called bot-commands), updated whenever it restarts or levelling or join-to-create is switched on or off. Staff and admin commands are never listed there.
 
 ### Everyone
 | Command | What it does |
@@ -127,6 +127,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/diagnostics` | Full check of the bot and VPS: a plain summary plus a detailed file |
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
+| `/setup commands` | Post or move the pinned list of member commands (`channel:` to pick one, `off:true` to stop) |
 | `/buttonroles` | Post self-assign role buttons |
 | `/live` | Live and new-video alerts: set the channel and ping role, add or remove accounts, check now |
 | `/automod` | Automod rules: switch on, choose actions, blocked words, allowed sites, limits, exemptions, and a safe test |
