@@ -261,6 +261,9 @@ const admin = {
       case 'toggle': {
         const on = interaction.options.getBoolean('enabled', true);
         save({ enabled: on });
+        await require('../lib/command-guide')
+          .postGuide(interaction.guild)
+          .catch(() => {});
         return done(
           on
             ? 'Levelling is **on**.'
