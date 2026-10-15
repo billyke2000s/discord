@@ -118,9 +118,16 @@ const vc = {
           if (!channel.members.has(u.id))
             return interaction.reply({ content: 'They need to be in the channel.', flags: MessageFlags.Ephemeral });
           if (u.bot) return interaction.reply({ content: 'Bots can’t own channels.', flags: MessageFlags.Ephemeral });
-          setOwner.run(u.id, channel.id);
+          // Give the new owner control in Discord first; only then record them as owner, so a failed
+          // permission change can't leave the database and the channel disagreeing.
           await channel.permissionOverwrites.edit(u.id, { Connect: true, ManageChannels: true, MoveMembers: true });
-          await channel.permissionOverwrites.edit(interaction.user.id, { ManageChannels: null, MoveMembers: null });
+          setOwner.run(u.id, channel.id);
+          const previous = r.row.owner_id;
+          if (previous !== u.id) {
+            await channel.permissionOverwrites
+              .edit(previous, { ManageChannels: null, MoveMembers: null })
+              .catch((e) => console.error('[vc] could not remove old owner controls:', e.message));
+          }
           return interaction.reply(`${u} now owns ${channel}.`);
         }
       }

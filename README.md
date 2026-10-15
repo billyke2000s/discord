@@ -185,7 +185,7 @@ More detail: [playlist behaviour](docs/PLAYLIST_STARTUP.md).
 - **Button roles** refuse the Member, Staff and any role with mod or admin powers, checked again on every click.
 - **`/lockdown`** stays on through restarts until you turn it off or its timer ends.
 - **Self-promo:** posts from people who joined less than 7 days ago are removed and they're told when they can post.
-- **Tickets:** closing a ticket posts a text transcript (up to the last 1,000 messages) to 📋・mod-logs before the channel is deleted.
+- **Tickets:** only the member who opened a ticket, staff, or someone with Manage Channels can close it. Closing posts a text transcript (up to the last 1,000 messages) to 📋・mod-logs first. If the transcript can't be saved (for example no log channel is set), the ticket **stays open** and staff get a *Close without transcript* button instead.
 
 ---
 

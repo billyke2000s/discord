@@ -20,6 +20,7 @@ test('every button family is routed to a handler', () => {
     'ticket:open',
     'ticket:close',
     'ticket:confirm',
+    'ticket:force',
     'verify:start',
     'verify:enter',
     'verify:modal',

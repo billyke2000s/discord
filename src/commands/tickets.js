@@ -1,5 +1,5 @@
 // Tickets: a panel with an "Open ticket" button creates a private channel for the user + staff.
-// Closing logs who closed it, then deletes the channel.
+// Closing saves a transcript to the log channel first, then deletes the channel.
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -111,7 +111,29 @@ async function createTicket(interaction, tickets) {
   await log(g, embed('info').setDescription(`🎫 ${interaction.user} opened ${ch}.`));
 }
 
+// Who may close a ticket: the member who opened it, the ticket staff role, or anyone who can manage channels.
+function canClose(interaction, row) {
+  if (!row) return false;
+  if (interaction.user.id === row.user_id) return true;
+  if (interaction.memberPermissions?.has(P.ManageChannels)) return true;
+  const staffRole = getSettings(interaction.guildId).tickets.staffRole;
+  return !!staffRole && !!interaction.member?.roles?.cache?.has(staffRole);
+}
+const isStaff = (interaction) => {
+  const staffRole = getSettings(interaction.guildId).tickets.staffRole;
+  return (
+    interaction.memberPermissions?.has(P.ManageChannels) ||
+    (!!staffRole && !!interaction.member?.roles?.cache?.has(staffRole))
+  );
+};
+const ticketRow = (channelId) => db.prepare('SELECT * FROM tickets WHERE channel_id = ?').get(channelId);
+const eph = (content) => ({ content, flags: MessageFlags.Ephemeral });
+
 async function close(interaction) {
+  const row = ticketRow(interaction.channelId);
+  if (!row) return interaction.reply(eph('This isn’t a ticket channel.'));
+  if (!canClose(interaction, row))
+    return interaction.reply(eph('Only the person who opened this ticket or staff can close it.'));
   await interaction.reply({
     content: 'Close this ticket?',
     components: [
@@ -123,35 +145,72 @@ async function close(interaction) {
   });
 }
 
+function deleteSoon(interaction) {
+  db.prepare('DELETE FROM tickets WHERE channel_id = ?').run(interaction.channelId);
+  setTimeout(() => interaction.channel.delete('Ticket closed').catch(() => {}), 5000);
+}
+
+// Close only once the transcript is safely in the log channel. If it can't be saved, the ticket stays open
+// and staff get a "close without transcript" button, so a conversation is never lost by accident.
 async function confirm(interaction) {
-  const row = db.prepare('SELECT * FROM tickets WHERE channel_id = ?').get(interaction.channelId);
-  if (!row) return interaction.reply({ content: 'This isn’t a ticket channel.', flags: MessageFlags.Ephemeral });
-  await interaction.update({ content: 'Saving a transcript, then closing in 5 seconds…', components: [] });
+  const row = ticketRow(interaction.channelId);
+  if (!row) return interaction.reply(eph('This isn’t a ticket channel.'));
+  if (!canClose(interaction, row))
+    return interaction.reply(eph('Only the person who opened this ticket or staff can close it.'));
+  await interaction.update({ content: 'Saving a transcript…', components: [] });
 
   const transcript = await buildTranscript(interaction.channel).catch((e) => {
     console.error('[tickets] transcript failed:', e.message);
     return null;
   });
-  const files = transcript
-    ? [
-        new AttachmentBuilder(Buffer.from(transcript.text, 'utf8'), {
-          name: `${interaction.channel.name.replace(/[^\w-]+/g, '') || 'ticket'}-transcript.txt`,
-        }),
-      ]
-    : [];
-  const note = transcript
-    ? ` Transcript of ${transcript.count} message(s) attached${transcript.cut ? ` (only the last ${TRANSCRIPT_LIMIT})` : ''}.`
-    : ' The transcript could not be saved.';
+  let saved = false;
+  if (transcript) {
+    const file = new AttachmentBuilder(Buffer.from(transcript.text, 'utf8'), {
+      name: `${interaction.channel.name.replace(/[^\w-]+/g, '') || 'ticket'}-transcript.txt`,
+    });
+    const cut = transcript.cut ? ` (only the last ${TRANSCRIPT_LIMIT})` : '';
+    saved = await log(
+      interaction.guild,
+      embed('grey').setDescription(
+        `🔒 Ticket ${interaction.channel.name} (opened by <@${row.user_id}>) closed by ${interaction.user}. Transcript of ${transcript.count} message(s) attached${cut}.`,
+      ),
+      { files: [file] },
+    );
+  }
+  if (!saved) {
+    const why = !getSettings(interaction.guildId).logChannel
+      ? 'there’s no log channel set (`/setup logs`)'
+      : transcript
+        ? 'I couldn’t post in the log channel'
+        : 'I couldn’t read this channel’s messages';
+    return interaction.editReply({
+      content: `⚠️ The ticket is **still open**: I couldn’t save the transcript because ${why}. Fix that and close again, or staff can close it without a transcript.`,
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('ticket:force')
+            .setLabel('Close without transcript (staff)')
+            .setStyle(ButtonStyle.Danger),
+        ),
+      ],
+    });
+  }
+  await interaction.editReply({ content: 'Transcript saved. Closing in 5 seconds…', components: [] });
+  deleteSoon(interaction);
+}
+
+async function forceClose(interaction) {
+  const row = ticketRow(interaction.channelId);
+  if (!row) return interaction.reply(eph('This isn’t a ticket channel.'));
+  if (!isStaff(interaction)) return interaction.reply(eph('Only staff can close a ticket without a transcript.'));
+  await interaction.update({ content: 'Closing without a transcript in 5 seconds…', components: [] });
   await log(
     interaction.guild,
-    embed('grey').setDescription(
-      `🔒 Ticket ${interaction.channel.name} (opened by <@${row.user_id}>) closed by ${interaction.user}.${note}`,
+    embed('warn').setDescription(
+      `🔒 Ticket ${interaction.channel.name} (opened by <@${row.user_id}>) closed by ${interaction.user} **without a transcript**.`,
     ),
-    { files },
   );
-
-  db.prepare('DELETE FROM tickets WHERE channel_id = ?').run(interaction.channelId);
-  setTimeout(() => interaction.channel.delete('Ticket closed').catch(() => {}), 5000);
+  deleteSoon(interaction);
 }
 
 // Plain-text record of the ticket, oldest message first, posted to the log channel before the channel is deleted.
@@ -185,6 +244,6 @@ async function buildTranscript(channel) {
 module.exports = {
   buildTranscript,
   commands: [],
-  components: { 'ticket:open': open, 'ticket:close': close, 'ticket:confirm': confirm },
+  components: { 'ticket:open': open, 'ticket:close': close, 'ticket:confirm': confirm, 'ticket:force': forceClose },
   panel,
 };

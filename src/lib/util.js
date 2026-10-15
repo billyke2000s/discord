@@ -26,15 +26,18 @@ function embed(color = 'info') {
 }
 
 // Send an embed to the guild's configured log channel. Never throws.
+// Returns true once it's posted, so callers that must not lose the record (ticket transcripts) can check.
 async function log(guild, e, extra = {}) {
   try {
     const { logChannel } = getSettings(guild.id);
-    if (!logChannel) return;
+    if (!logChannel) return false;
     const ch = guild.channels.cache.get(logChannel) || (await guild.channels.fetch(logChannel).catch(() => null));
-    if (!ch?.isTextBased()) return;
+    if (!ch?.isTextBased()) return false;
     await ch.send({ embeds: [e.setTimestamp()], ...extra });
+    return true;
   } catch (err) {
     console.error('[log] failed:', err.message);
+    return false;
   }
 }
 
