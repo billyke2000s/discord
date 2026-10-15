@@ -17,7 +17,7 @@ const stamp = (d = new Date()) => {
 };
 
 function list(tag) {
-  let files = [];
+  let files;
   try { files = fs.readdirSync(DIR); } catch { return []; }
   return files.map((f) => ({ f, m: NAME_RE.exec(f) })).filter((x) => x.m && (!tag || x.m[3] === tag))
     .map((x) => ({ file: x.f, day: x.m[1], tag: x.m[3] })).sort((a, b) => a.file.localeCompare(b.file));
