@@ -33,7 +33,7 @@ def validate_manifest(data, tag):
     return data['image']
 
 
-def latest_image():
+def latest_release():
     release = get_json(f'https://api.github.com/repos/{REPO}/releases/latest')
     if release.get('draft') or release.get('prerelease'):
         raise ValueError('Refusing a draft or prerelease')
@@ -44,7 +44,13 @@ def latest_image():
     url = assets[0]['browser_download_url']
     if not url.startswith(f'https://github.com/{REPO}/releases/download/'):
         raise ValueError('Unexpected release asset location')
-    return validate_manifest(get_json(url), tag)
+    manifest = get_json(url)
+    image = validate_manifest(manifest, tag)
+    return {'version': tag, 'commit': manifest['commit'], 'image': image}
+
+
+def latest_image():
+    return latest_release()['image']
 
 
 def replace_image(text, image):
@@ -53,14 +59,14 @@ def replace_image(text, image):
     return re.sub(r'^BOT_IMAGE=.*$', f'BOT_IMAGE={image}', text, flags=re.M)
 
 
-def atomic_write(path, text):
+def atomic_write(path, text, mode=0o600):
     fd, name = tempfile.mkstemp(dir=path.parent, prefix='.update-')
     try:
         with os.fdopen(fd, 'w') as file:
             file.write(text)
             file.flush()
             os.fsync(file.fileno())
-        os.chmod(name, 0o600)
+        os.chmod(name, mode)
         os.replace(name, path)
     finally:
         if os.path.exists(name):
@@ -123,16 +129,16 @@ def recover_pending(directory):
     print('Recovered previous settings/image after an interrupted deployment')
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--directory', default='/root/server-bot')
     parser.add_argument('--apply', action='store_true', help='Apply only if auto-update.json opts in')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     directory = Path(args.directory).resolve()
     os.chdir(directory)
     if args.apply and not json.loads(Path('auto-update.json').read_text()).get('enabled') is True:
         print('Automatic updates disabled')
-        return
+        return 'disabled'
     # The manual installer takes the same lock. Never run two deployments together.
     import fcntl
     with open('.deployment.lock', 'a') as lock:
@@ -146,11 +152,11 @@ def main():
             raise ValueError('Current image must be pinned to a release digest; run the manual installer first')
         if old == image:
             print('Already on this release')
-            return
+            return 'current'
         print(f'Available bot image: {image}')
         if not args.apply:
             print('Preview only; nothing changed')
-            return
+            return 'preview'
         failed = Path('.failed-update')
         if failed.exists() and failed.read_text().strip() == image:
             raise ValueError('This image previously failed; inspect logs before removing .failed-update')
@@ -159,7 +165,7 @@ def main():
         health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
         if health.get('sessions') != 0:
             print('Music session active; deferring to the next timer run')
-            return
+            return 'deferred'
         if shutil.disk_usage(directory).free < 2 * 1024**3:
             raise ValueError('Less than 2 GiB free; clear space before updating')
         env_path = Path('.env')
@@ -171,7 +177,7 @@ def main():
         health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
         if health.get('sessions') != 0:
             print('Music started during download; deferring deployment')
-            return
+            return 'deferred'
         os.umask(0o077)
         backup = Path('backups') / ('auto-update-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S'))
         backup.mkdir(mode=0o700)
@@ -190,7 +196,9 @@ def main():
             raise
         journal.unlink()
         print(f'Deployed and healthy. Settings backup: {backup}; SQLite backup in backups/')
+        return 'updated'
 
 
 if __name__ == '__main__':
     main()
+

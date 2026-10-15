@@ -20,6 +20,8 @@ const help = {
         const locked = rebuildLocked(interaction.guildId);
         admin += locked ? '\nOwner: `/setup restyle` (`/setup rebuild` is locked)' : '\nOwner: `/setup restyle` `/setup rebuild`';
       }
+      if(interaction.user.id===interaction.guild.ownerId)
+        admin+='\nServer owner only: `/update` checks versions and requests the latest bot release; `/update check-only:true` only checks.';
       fields.push({ name: '⚙️ Admin', value: admin });
     }
     await interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [embed('info').setTitle('Commands').addFields(fields)] });

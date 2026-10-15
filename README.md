@@ -192,6 +192,8 @@ Roles        Admin · Staff · Member
 | `/setup restyle` | Add the `emoji・name` style to channel names (renames only) |
 | `/setup rebuild` | ⚠️ **Wipes and rebuilds the server.** Locked after its first use. |
 
+**Actual Discord server owner only:** `/update` checks installed/latest versions and requests a bot update. `/update check-only:true` checks without updating. Administrator roles and `BOT_ADMIN_IDS` do not grant access. Requires the one-time host bridge setup below.
+
 ---
 
 ## Music
@@ -292,6 +294,23 @@ Set it back to `no` afterwards.
 
 ## Update the bot
 
+### Update from Discord
+
+Once the host bridge is installed/enabled, the **actual Discord server owner** can use:
+
+```text
+/update
+/update check-only:true
+```
+
+Replies are private. `/update` compares the running image's embedded release version/commit with the latest stable release manifest. If different, it queues a fixed update request for the VPS; it does not download/execute installer commands inside the bot. Use `/stop` first if a music session is active. The VPS independently verifies the current server owner, then uses the existing backup, idle, deployment-lock, digest and readiness/rollback checks. Expect a short bot restart if an update installs.
+
+The bot attempts to DM the owner with the result, including after a restart. If DMs are blocked or a notification is missed, `/update check-only:true` also shows the last request's status. A submitted request is **not** proof of installation; look for a completed/healthy result. Failed/busy/deferred requests are reported rather than called successful.
+
+**One-time setup for existing installations:** download/run the latest manual installer below. This adds the Compose request/status mounts, current updater files and image version metadata. If `auto-update.json` already has `enabled: true`, the installer enables the Discord bridge timer automatically. Otherwise complete the enable block below. Updating only the old bot image cannot install this host integration.
+
+The bridge checks for requests about every 15 seconds. It has no bot-accessible Docker socket or arbitrary command interface. Host status is mounted read-only; the bot writes only fixed-schema requests. Requests expire after five minutes and duplicates are rejected. Check-only requests have a 15-second cooldown; deployment requests have a one-minute cooldown. Local/development images without release build metadata show an unknown/development version and may require the manual installer.
+
 ### Manual update or configuration changes
 
 Stop music first. In PuTTY/your SSH terminal, download the **latest published installer**, then run it:
@@ -315,8 +334,9 @@ cd /root/server-bot &&
 printf '%s\n' '{"enabled": true}' > auto-update.json &&
 chmod 600 auto-update.json &&
 cp deployment/server-bot-update.service deployment/server-bot-update.timer /etc/systemd/system/ &&
+cp deployment/server-bot-discord-update.service deployment/server-bot-discord-update.timer /etc/systemd/system/ &&
 systemctl daemon-reload &&
-systemctl enable --now server-bot-update.timer &&
+systemctl enable --now server-bot-update.timer server-bot-discord-update.timer &&
 systemctl list-timers server-bot-update.timer --no-pager
 ```
 
@@ -366,6 +386,7 @@ To stop future scheduled runs and disable applying updates:
 
 ```bash
 systemctl disable --now server-bot-update.timer
+systemctl disable --now server-bot-discord-update.timer
 printf '%s\n' '{"enabled": false}' > /root/server-bot/auto-update.json
 ```
 
@@ -460,6 +481,7 @@ docker compose up -d bot
 ├─ src/                     the bot's code
 ├─ deployment/              updater script and systemd service/timer templates
 ├─ auto-update.json         automatic-update opt-in (created when enabled)
+├─ updates/                 fixed Discord update requests and host status (private operational data)
 ├─ lavalink/application.yml music server config (secrets come from .env)
 ├─ lavalink/plugins/        YouTube plugin (downloaded and checked by install.sh)
 ├─ yt-cipher/               YouTube helper (pinned version)

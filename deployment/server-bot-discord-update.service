@@ -1,0 +1,13 @@
+[Unit]
+Description=Process owner Discord bot update requests
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/server-bot
+ExecStart=/usr/bin/python3 /root/server-bot/deployment/discord_update.py
+UMask=0077
+TimeoutStartSec=15min
+
+

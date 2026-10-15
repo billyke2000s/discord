@@ -24,8 +24,10 @@ python3 deployment/update.py
 # Explicitly opt in:
 printf '%s\n' '{"enabled": true}' > auto-update.json
 cp deployment/server-bot-update.service deployment/server-bot-update.timer /etc/systemd/system/
+cp deployment/server-bot-discord-update.service deployment/server-bot-discord-update.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now server-bot-update.timer
+systemctl enable --now server-bot-discord-update.timer
 systemctl list-timers server-bot-update.timer
 ```
 
@@ -68,6 +70,7 @@ changes also require a manual installer even when a bot-only release is compatib
 journalctl -u server-bot-update.service --since yesterday
 systemctl start server-bot-update.service  # one opted-in check now
 systemctl disable --now server-bot-update.timer
+systemctl disable --now server-bot-discord-update.timer
 printf '%s\n' '{"enabled": false}' > /root/server-bot/auto-update.json
 ```
 
@@ -90,3 +93,45 @@ repository's GHCR image by digest. Someone controlling its release publishing ca
 publish code the updater installs. Enable this only if you trust that publishing path.
 The repository's existing `main` release policy remains: pushes publish releases,
 with regression tests now required by the release job before building/publishing.
+
+## Owner Discord command
+
+`/update` checks the running image's build version/commit against the latest stable
+release manifest and queues an update when different. `/update check-only:true`
+does not deploy. Only the actual Discord guild owner can use either command;
+Administrator and BOT_ADMIN_IDS are insufficient. Both replies are private.
+
+Install the current release **with the manual installer once** for the host worker,
+Compose mounts and build metadata. The installer enables the bridge timer if the
+existing local auto-update config explicitly opts in. New installations need the
+separate enable step above. For custom paths, edit both services' WorkingDirectory
+and ExecStart; timer files have no installation paths.
+
+The bot can write `updates/requests/`, but `updates/status/` is read-only in its
+container. A root systemd oneshot checks every 15 seconds and accepts only request
+ID, guild ID, owner ID and timestamp. No command, image, URL or path is accepted.
+The host verifies ownership using Discord's API with the existing bot token, then
+fetches/validates the release independently and calls the same deployment code.
+It uses a separate worker lock plus the shared deployment lock; invalid/expired
+requests and already processed IDs are ignored. It never follows request symlinks.
+
+Version metadata is embedded at image build time. Updates still affect only the
+bot image; the command cannot update the host worker, timer, Compose or Lavalink.
+The command is not a bypass for disabled opt-in, active music, unhealthy current
+state, failed-image quarantine, incompatible manifests or unavailable disk space.
+
+Results persist through bot restarts. Owner DMs are best effort and attempted once;
+the command can display the persisted result if DMs fail. Request/result records
+contain Discord IDs and versions, not interaction tokens or the bot token. The bot
+process cannot author a host result through the read-only mount. The host worker
+reconciles a previously updating result on its next run, including calling the
+existing updater recovery path. Failures require inspection of:
+
+```bash
+journalctl -u server-bot-discord-update.service -n 50 --no-pager
+systemctl list-timers server-bot-discord-update.timer --no-pager
+```
+
+Disabling `auto-update.json` blocks both daily and Discord-triggered deployments.
+Disabling just the daily timer leaves an enabled Discord bridge available.
+

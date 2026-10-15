@@ -13,7 +13,9 @@ mkdir -p "$TMP/server-bot" "$(dirname "$OUT")"
 tar -C "$ROOT" \
   --exclude=./.git --exclude=./.github --exclude=./dist --exclude=./installer --exclude=./scripts \
   --exclude=./node_modules --exclude=./data --exclude=./.env --exclude=./yt-cipher --exclude=./spotify-tokener \
-  --exclude=./lavalink/plugins --exclude=./locks --exclude=./backups --exclude='*.bak' \
+  --exclude=./auto-update.json --exclude=./.deployment.lock --exclude=./.discord-update.lock \
+  --exclude=./.failed-update --exclude=./.update-pending.json \
+  --exclude=./lavalink/plugins --exclude=./locks --exclude=./backups --exclude=./updates --exclude='*.bak' \
   -cf - . | tar -xf - -C "$TMP/server-bot"
 tar -C "$TMP" -czf "$TMP/payload.tgz" server-bot
 
@@ -21,3 +23,4 @@ sed "s#@@BOT_IMAGE@@#${IMAGE}#" "$ROOT/installer/install-head.sh" > "$OUT"
 base64 -w 76 "$TMP/payload.tgz" >> "$OUT"
 chmod +x "$OUT"
 echo "Built $OUT ($(du -h "$OUT" | cut -f1)), bot image: ${IMAGE}"
+

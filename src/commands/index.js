@@ -1,5 +1,6 @@
 // Collects every command and button/modal handler from the modules in this folder.
 const modules = [
+  require('./update'),
   require('./birthday'),
   require('./music'),
   require('./voice'),

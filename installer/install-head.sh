@@ -283,6 +283,11 @@ cp -a "$TMP/server-bot/." "$INSTALL_DIR/"
 rm -f "$INSTALL_DIR/tvfix.sh" "$INSTALL_DIR"/*.bak; rm -rf /root/yts-fix
 # second copy of the /setup rebuild lock (the bot runs as uid 1000 inside its container)
 mkdir -p "$INSTALL_DIR/locks" && chown 1000:1000 "$INSTALL_DIR/locks" && chmod 700 "$INSTALL_DIR/locks"
+mkdir -p "$INSTALL_DIR/updates/requests" "$INSTALL_DIR/updates/status"
+chown root:root "$INSTALL_DIR/updates" "$INSTALL_DIR/updates/status"
+chmod 755 "$INSTALL_DIR/updates" "$INSTALL_DIR/updates/status"
+chown 1000:1000 "$INSTALL_DIR/updates/requests"
+chmod 700 "$INSTALL_DIR/updates/requests"
 ok "Code installed"
 
 LL_PASS="$(envget LAVALINK_PASSWORD)"; [ ${#LL_PASS} -ge 20 ] || LL_PASS="$(openssl rand -hex 24)"
@@ -431,6 +436,24 @@ else echo "$out" | tail -15; die "Registering slash commands failed (output abov
 wait_log bot 'Logged in as' 90 >/dev/null || die "Bot didn't log in. Check: docker compose logs bot"
 ok "Bot online as ${BOT_NAME}"
 if wait_log bot 'node main ready' 60 >/dev/null; then ok "Music connected"; else warn "Music not connected yet (check: docker compose logs bot)"; fi
+
+# Reuse an existing explicit updater opt-in. A bot image update alone cannot add
+# host services or Compose mounts; this one-time installer provisions the bridge.
+if [ -f "$INSTALL_DIR/auto-update.json" ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("enabled") is True else 1)' "$INSTALL_DIR/auto-update.json"; then
+  python3 - "$INSTALL_DIR" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+for name in ('server-bot-discord-update.service', 'server-bot-discord-update.timer'):
+    text = (root / 'deployment' / name).read_text().replace('/root/server-bot', str(root))
+    (Path('/etc/systemd/system') / name).write_text(text)
+PY
+  systemctl daemon-reload
+  systemctl enable --now server-bot-discord-update.timer
+  ok 'Owner /update bridge enabled (existing automatic-update opt-in)'
+else
+  warn 'Owner /update needs the separate updater enable step in README; automatic updates remain off.'
+fi
 
 # ---------- done ----------
 cat <<EOF

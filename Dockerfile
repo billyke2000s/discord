@@ -9,6 +9,9 @@ RUN npm ci --omit=dev
 
 # Stage 2: the actual bot image (no build tools, smaller)
 FROM node:22.22.2-bookworm-slim
+ARG BUILD_VERSION=development
+ARG BUILD_COMMIT=development
+ENV BOT_BUILD_VERSION=$BUILD_VERSION BOT_BUILD_COMMIT=$BUILD_COMMIT
 # fonts for the captcha image (@napi-rs/canvas has no built-in fonts)
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -19,3 +22,4 @@ RUN mkdir -p /app/data /app/locks /app/backups && chown node:node /app/data /app
 USER node
 HEALTHCHECK --interval=10s --timeout=3s --start-period=90s --retries=3 CMD node src/lib/health.js
 CMD ["node", "src/index.js"]
+
