@@ -8,7 +8,7 @@ const help = {
   async execute(interaction) {
     const m = interaction.member;
     const fields = [
-      { name: '🎂 Birthdays', value: '`/birthday set` · `/birthday show` · `/birthday remove` — a birthday announcement and 👑 Birthday role for 24 hours (UTC dates).' },
+      { name: '🎂 Birthdays', value: '`/birthday set` · `/birthday show` — a birthday announcement and 👑 Birthday role for 24 hours (UTC dates).' },
       { name: '🎵 Music', value: '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has pause, vote skip, vote stop, shuffle, queue and volume. Skip and stop need more than half of the people in the channel.' },
       { name: '🔊 Your voice channel', value: 'Join ➕・Join to Create to get your own, then `/vc lock` `unlock` `limit` `rename` `kick` `transfer`' },
     ];

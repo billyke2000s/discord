@@ -16,6 +16,20 @@ catch {
 }
 const { db, getSettings } = require('../src/lib/db');
 const birthday = require('../src/commands/birthday');
+test('set and show are private and scoped to the caller; remove is not registered', async () => {
+  const { MessageFlags } = require('discord.js');
+  const command=birthday.commands[0];
+  assert.deepEqual(command.data.toJSON().options.map(o=>o.name),['set','show']);
+  let reply;
+  const interaction=(user,sub)=>({guildId:'private',user:{id:user},options:{getSubcommand:()=>sub,getInteger:name=>name==='month'?5:12},reply:async r=>{reply=r;}});
+  await command.execute(interaction('alice','set'));
+  assert.equal(reply.flags,MessageFlags.Ephemeral);
+  await command.execute(interaction('bob','show'));
+  assert.equal(reply.content,'No birthday saved.');assert.equal(reply.flags,MessageFlags.Ephemeral);
+  await command.execute(interaction('alice','show'));
+  assert.equal(reply.content,'Your birthday: 12/5.');assert.equal(reply.flags,MessageFlags.Ephemeral);
+  db.prepare('DELETE FROM birthdays WHERE guild_id=?').run('private');
+});
 after(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 test('calendar validation accepts leap day but rejects impossible dates', () => {
   assert.equal(birthday.valid(2,29), true);

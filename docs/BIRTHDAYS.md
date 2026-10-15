@@ -1,6 +1,6 @@
 # Birthdays
 
-Use `/birthday set month:10 day:15`, `/birthday show`, or `/birthday remove`.
+Use `/birthday set month:10 day:15`, `/birthday show`.
 Only the day and month are stored; replies are private. Dates use UTC, with a
 check on startup and every minute. February 29 birthdays run on February 29 only.
 No catch-up announcement is sent for dates spent entirely offline.

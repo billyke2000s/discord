@@ -12,13 +12,11 @@ CREATE TABLE IF NOT EXISTS birthday_announcements (
 const valid = (m,d) => Number.isInteger(m) && Number.isInteger(d) && m>=1 && m<=12 && d>=1 && d<=new Date(Date.UTC(2024,m,0)).getUTCDate();
 const command = { data: new SlashCommandBuilder().setName('birthday').setDescription('Opt in to birthday announcements')
  .addSubcommand(s=>s.setName('set').setDescription('Set your birthday (no birth year stored)').addIntegerOption(o=>o.setName('month').setDescription('1-12').setRequired(true).setMinValue(1).setMaxValue(12)).addIntegerOption(o=>o.setName('day').setDescription('Day of month').setRequired(true).setMinValue(1).setMaxValue(31)))
- .addSubcommand(s=>s.setName('remove').setDescription('Remove your birthday'))
  .addSubcommand(s=>s.setName('show').setDescription('Show your saved birthday')),
  async execute(i) { const sub=i.options.getSubcommand(), g=i.guildId, u=i.user.id;
   if(sub==='set'){const m=i.options.getInteger('month',true),d=i.options.getInteger('day',true);if(!valid(m,d))return i.reply({content:'That date is invalid.',flags:MessageFlags.Ephemeral});
     db.prepare('INSERT INTO birthdays (guild_id,user_id,month,day,last_sent_year) VALUES (?,?,?,?,NULL) ON CONFLICT(guild_id,user_id) DO UPDATE SET month=excluded.month,day=excluded.day').run(g,u,m,d);
     return i.reply({content:`Birthday saved: ${d}/${m}. Birthdays use UTC. On the day you get an announcement and the 👑 Birthday role for 24 hours. Your birth year is not stored.`,flags:MessageFlags.Ephemeral});}
-  if(sub==='remove'){db.prepare('DELETE FROM birthdays WHERE guild_id=? AND user_id=?').run(g,u);return i.reply({content:'Birthday removed.',flags:MessageFlags.Ephemeral});}
   const row=db.prepare('SELECT month,day FROM birthdays WHERE guild_id=? AND user_id=?').get(g,u);
   return i.reply({content:row?`Your birthday: ${row.day}/${row.month}.`:'No birthday saved.',flags:MessageFlags.Ephemeral});
  }};
