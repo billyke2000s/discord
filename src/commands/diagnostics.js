@@ -217,7 +217,7 @@ const diagnostics = {
       chan(s.jtc.lobbyChannel, 'Join-to-create lobby', false);
       if (s.selfPromo.channel) chan(s.selfPromo.channel, 'Self-promo channel', false);
       if (s.suggestions.channel) chan(s.suggestions.channel, 'Suggestions channel', false);
-    if (s.levels?.enabled && s.levels.announce === 'channel') chan(s.levels.announceChannel, 'Level-up channel');
+      if (s.levels?.enabled && s.levels.announce === 'channel') chan(s.levels.announceChannel, 'Level-up channel');
       const setupOk = results.filter((r) => r.group === 'Setup' && r.status === 'ok').length;
       summaries.Setup = `${setupOk} channels and roles in place`;
 
