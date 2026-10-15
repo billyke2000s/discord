@@ -24,7 +24,7 @@ const help = {
       },
       {
         name: '🔊 Your voice channel',
-        value: 'Join ➕・Join to Create to get your own, then `/vc lock` `unlock` `limit` `rename` `kick` `transfer`',
+        value: 'Join ➕・Join to Create to get your own, and use the control panel in its chat (or `/vc`)',
       },
     ];
     if (m.permissions.has(P.ModerateMembers) || isOwner(interaction.user, interaction.guild))

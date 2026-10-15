@@ -7,6 +7,7 @@ const logged = [];
 let logResult = true; // what the log channel post returns (false = it couldn't be saved)
 const rows = { tickets: [], warnings: [{ id: 7, guild_id: 'g', user_id: 'u1' }] };
 const fakeDb = {
+  exec: () => {},
   prepare: (sql) => ({
     all: () => (/FROM tickets/.test(sql) ? rows.tickets : []),
     get: (_g, id) => (/FROM warnings/.test(sql) ? rows.warnings.find((w) => w.id === id) : null),

@@ -31,7 +31,7 @@ function guideEmbed(s) {
   if (s.jtc?.lobbyChannel)
     sections.push({
       name: '🔊 Your own voice channel',
-      value: `Join <#${s.jtc.lobbyChannel}> to get one, then control it with \`/vc lock\` · \`unlock\` · \`limit\` · \`rename\` · \`kick\` · \`transfer\``,
+      value: `Join <#${s.jtc.lobbyChannel}> to get one. A control panel appears in its chat: lock it for you and your mates, set a limit, rename it, kick someone or hand it over. \`/vc panel\` brings the panel back.`,
     });
   sections.push({ name: '❓ Help', value: '`/help` lists everything you can use.' });
   return embed('info')

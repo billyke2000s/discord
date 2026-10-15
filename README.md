@@ -17,7 +17,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 | | |
 |---|---|
 | 🎵 **Music** | Song names, YouTube links/playlists and Spotify links/playlists/albums. A live panel with vote back, skip, stop and shuffle, and a paged queue. Carries on after restarts and updates. |
-| 🔊 **Join-to-create voice** | Join the lobby to get your own voice channel, controlled with `/vc`. It's deleted when it empties. |
+| 🔊 **Join-to-create voice** | Join the lobby to get your own voice channel, with a control panel (lock, limit, rename, kick, hand over) in its chat. It's deleted when it empties. |
 | ✅ **Captcha verification** | New people type a code from an image before they see the server. Anyone who doesn't verify in 15 minutes is kicked. |
 | 🛡️ **Moderation** | warn, timeout, kick, ban, purge, slowmode and more, all logged. `/lockdown` for raids. |
 | 🚫 **Scam filter** | Deletes known Discord and Steam scam links and catches hacked-account spam. |
@@ -115,7 +115,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/status` | Is the music working, or is it just me? A quick private check |
 | `/rank [user]` · `/leaderboard` | Your level and XP, and the most active members |
 | `/birthday set` · `/birthday show` | Save or see your own birthday (private reply) |
-| `/vc lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel |
+| `/vc panel` · `lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel (the panel in its chat does the same with buttons) |
 | `/help` | What you can use |
 
 ### Staff
