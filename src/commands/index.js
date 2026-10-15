@@ -13,6 +13,7 @@ const modules = [
   require('./diagnostics'),
   require('./status'),
   require('./levels'),
+  require('./automod'),
 ];
 
 const commands = new Map(); // name -> { data, execute }

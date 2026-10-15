@@ -21,6 +21,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 | ✅ **Captcha verification** | New people type a code from an image before they see the server. Anyone who doesn't verify in 15 minutes is kicked. |
 | 🛡️ **Moderation** | warn, timeout, kick, ban, purge, slowmode and more, all logged. `/lockdown` for raids. |
 | 🚫 **Scam filter** | Deletes known Discord and Steam scam links and catches hacked-account spam. |
+| 🤖 **Automod** | Optional rules for blocked words, invites, links, capitals, mass mentions and spam, each set to delete, warn or time out. |
 | 🎫 **Tickets** | A private channel with staff at the click of a button. A transcript goes to the log when it closes. |
 | 🏷️ **Button roles** | Members pick their own roles. |
 | 📋 **Logs** | Joins, leaves, deleted and edited messages, and every mod action. |
@@ -126,6 +127,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
+| `/automod` | Automod rules: switch on, choose actions, blocked words, allowed sites, limits, exemptions, and a safe test |
 | `/levels` | Levelling: on/off, where level-ups are posted, reward roles, channels without XP, set or reset a member |
 | `/lockdown on · off · status` | Kick anyone new who joins, during a raid |
 
@@ -165,6 +167,18 @@ More detail: [playlist behaviour](docs/PLAYLIST_STARTUP.md).
   - Big sites (YouTube, Google, Discord, Steam, Twitch, Spotify and so on) are never flagged.
   - It also catches `@everyone`/`@here` with a link, and the same message in 3+ channels within 30 seconds.
   - Wrongly flagged site? `/setup scamfilter allow:<domain>`.
+- **Automod** (all rules **off** until you turn them on with `/automod rule`):
+
+  | Rule | Catches |
+  |---|---|
+  | Blocked words | Words or phrases from your list. Whole words only, ignoring case, accents and swaps like `b4d`. End a word with `*` to catch everything starting with it |
+  | Invite links | Invites to other Discord servers (your own server's invites are allowed) |
+  | Links | Links to sites not on the allowed list (YouTube, Spotify, Twitch, Tenor, Giphy and Discord are allowed to start with) |
+  | Too many capitals | Messages of 10+ letters that are mostly capitals (70% by default) |
+  | Too many mentions | More than 5 people or roles mentioned in one message |
+  | Sending too fast | 5 messages within 5 seconds |
+
+  Each rule can **delete** the message, delete and add a **warning** (shows in `/warnings`), or delete and **time out** (10 minutes by default). The member gets a DM and every action goes to 📋・mod-logs. Edited messages are checked too. Staff with Manage Messages, the owner, and any role or channel you exempt with `/automod exempt` are skipped. Try text safely with `/automod test` before switching a rule on; change numbers with `/automod limits`.
 - **Button roles** refuse the Member, Staff and any role with mod or admin powers, checked again on every click.
 - **`/lockdown`** stays on through restarts until you turn it off or its timer ends.
 - **Self-promo:** posts from people who joined less than 7 days ago are removed and they're told when they can post.
