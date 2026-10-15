@@ -4,6 +4,7 @@ const { db } = require('../lib/db');
 const { embed, truncate, isBotAdmin } = require('../lib/util');
 
 const getVc = db.prepare('SELECT * FROM temp_vcs WHERE channel_id = ?');
+const creating = new Set(); // guildId:userId while their channel is being created (stops quick rejoins making two)
 const setOwner = db.prepare('UPDATE temp_vcs SET owner_id = ? WHERE channel_id = ?');
 
 // Returns { channel, row } if the user is in a temp VC, else replies with an error and returns null.
@@ -109,6 +110,9 @@ async function handleVoiceState(oldState, newState, settings) {
     const existing = db.prepare('SELECT channel_id FROM temp_vcs WHERE guild_id = ? AND owner_id = ?').all(guild.id, member.id)
       .map((r) => guild.channels.cache.get(r.channel_id)).find(Boolean);
     if (existing) return member.voice.setChannel(existing).catch(() => {});
+    const key = `${guild.id}:${member.id}`;
+    if (creating.has(key)) return;
+    creating.add(key);
 
     try {
       const ch = await guild.channels.create({
@@ -128,6 +132,8 @@ async function handleVoiceState(oldState, newState, settings) {
       });
     } catch (e) {
       console.error('[jtc] create failed:', e.message);
+    } finally {
+      creating.delete(key);
     }
   }
 

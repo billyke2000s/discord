@@ -1,10 +1,12 @@
 // Tickets: a panel with an "Open ticket" button creates a private channel for the user + staff.
 // Closing logs who closed it, then deletes the channel.
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, MessageFlags, AttachmentBuilder } = require('discord.js');
 const { db, getSettings } = require('../lib/db');
 const { embed, log } = require('../lib/util');
 
 const P = PermissionFlagsBits;
+const opening = new Set(); // guildId:userId while a ticket channel is being created (stops double clicks making two)
+const TRANSCRIPT_LIMIT = 1000;
 
 function panel() {
   return {
@@ -19,10 +21,17 @@ async function open(interaction) {
   const { tickets } = getSettings(interaction.guildId);
   if (!tickets.staffRole) return interaction.reply({ content: 'Tickets are not set up yet.', flags: MessageFlags.Ephemeral });
 
+  const key = `${interaction.guildId}:${interaction.user.id}`;
+  if (opening.has(key)) return interaction.reply({ content: 'Your ticket is already being created.', flags: MessageFlags.Ephemeral });
   const existing = db.prepare('SELECT channel_id FROM tickets WHERE guild_id = ? AND user_id = ?').all(interaction.guildId, interaction.user.id)
     .find((r) => interaction.guild.channels.cache.has(r.channel_id));
   if (existing) return interaction.reply({ content: `You already have a ticket open: <#${existing.channel_id}>`, flags: MessageFlags.Ephemeral });
 
+  opening.add(key);
+  try { await createTicket(interaction, tickets); } finally { opening.delete(key); }
+}
+
+async function createTicket(interaction, tickets) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const g = interaction.guild;
   let ch;
@@ -69,16 +78,42 @@ async function close(interaction) {
 async function confirm(interaction) {
   const row = db.prepare('SELECT * FROM tickets WHERE channel_id = ?').get(interaction.channelId);
   if (!row) return interaction.reply({ content: 'This isn’t a ticket channel.', flags: MessageFlags.Ephemeral });
-  await interaction.update({ content: 'Closing in 5 seconds…', components: [] });
+  await interaction.update({ content: 'Saving a transcript, then closing in 5 seconds…', components: [] });
 
+  const transcript = await buildTranscript(interaction.channel).catch((e) => {
+    console.error('[tickets] transcript failed:', e.message);
+    return null;
+  });
+  const files = transcript ? [new AttachmentBuilder(Buffer.from(transcript.text, 'utf8'), { name: `${interaction.channel.name.replace(/[^\w-]+/g, '') || 'ticket'}-transcript.txt` })] : [];
+  const note = transcript ? ` Transcript of ${transcript.count} message(s) attached${transcript.cut ? ` (only the last ${TRANSCRIPT_LIMIT})` : ''}.` : ' The transcript could not be saved.';
   await log(interaction.guild,
-    embed('grey').setDescription(`🔒 Ticket ${interaction.channel.name} (opened by <@${row.user_id}>) closed by ${interaction.user}.`));
+    embed('grey').setDescription(`🔒 Ticket ${interaction.channel.name} (opened by <@${row.user_id}>) closed by ${interaction.user}.${note}`), { files });
 
   db.prepare('DELETE FROM tickets WHERE channel_id = ?').run(interaction.channelId);
   setTimeout(() => interaction.channel.delete('Ticket closed').catch(() => {}), 5000);
 }
 
+// Plain-text record of the ticket, oldest message first, posted to the log channel before the channel is deleted.
+async function buildTranscript(channel) {
+  const messages = [];
+  let before;
+  while (messages.length < TRANSCRIPT_LIMIT) {
+    const batch = await channel.messages.fetch({ limit: 100, before });
+    if (!batch.size) break;
+    messages.push(...batch.values());
+    before = batch.last().id;
+    if (batch.size < 100) break;
+  }
+  const lines = messages.reverse().map((m) => {
+    const files = m.attachments?.size ? ` [attachments: ${[...m.attachments.values()].map((a) => a.url).join(' ')}]` : '';
+    const embeds = !m.content && m.embeds?.length ? ` [embed: ${m.embeds.map((e) => e.description || e.title || '').join(' | ')}]` : '';
+    return `[${new Date(m.createdTimestamp).toISOString().slice(0, 16).replace('T', ' ')} UTC] ${m.author?.tag || 'unknown'} (${m.author?.id || '?'}): ${m.content || ''}${embeds}${files}`;
+  });
+  return { text: `Ticket ${channel.name} (${channel.id})\n\n${lines.join('\n')}\n`, count: messages.length, cut: messages.length >= TRANSCRIPT_LIMIT };
+}
+
 module.exports = {
+  buildTranscript,
   commands: [],
   components: { 'ticket:open': open, 'ticket:close': close, 'ticket:confirm': confirm },
   panel,

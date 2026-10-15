@@ -68,10 +68,18 @@ const delwarn = {
     const id = interaction.options.getInteger('id');
     const user = interaction.options.getUser('user');
     if (!id && !user) return interaction.reply({ content: 'Give a warning id or a user.', flags: MessageFlags.Ephemeral });
+    const target = id
+      ? db.prepare('SELECT user_id FROM warnings WHERE guild_id = ? AND id = ?').get(interaction.guildId, id)?.user_id
+      : user.id;
     const r = id
       ? db.prepare('DELETE FROM warnings WHERE guild_id = ? AND id = ?').run(interaction.guildId, id)
       : db.prepare('DELETE FROM warnings WHERE guild_id = ? AND user_id = ?').run(interaction.guildId, user.id);
     await interaction.reply({ content: `Deleted ${r.changes} warning(s).`, flags: MessageFlags.Ephemeral });
+    if (r.changes) {
+      await log(interaction.guild, embed('ok').setTitle('Warnings deleted')
+        .setDescription(`**User:** <@${target}>\n**Mod:** ${interaction.user}\n**Deleted:** ${id ? `warning #${id}` : `all ${r.changes} warning(s)`}`)
+        .setFooter({ text: `User ID ${target}` }));
+    }
   },
 };
 
@@ -103,6 +111,8 @@ const untimeout = {
   async execute(interaction) {
     const { user, member } = await getTarget(interaction);
     if (!member) return interaction.reply({ content: 'That user is not in the server.', flags: MessageFlags.Ephemeral });
+    const err = canModerate(interaction.member, member);
+    if (err) return interaction.reply({ content: err, flags: MessageFlags.Ephemeral });
     await member.timeout(null, `Removed by ${interaction.user.tag}`);
     await interaction.reply({ embeds: [embed('ok').setDescription(`🔊 Removed timeout for ${user}.`)] });
     await modLog(interaction, 'ok', 'Timeout removed', user, '-');
