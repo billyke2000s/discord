@@ -8,7 +8,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 
 ## Contents
 
-[Features](#features) · [What you need](#what-you-need) · [Install](#install) · [First time in Discord](#first-time-in-discord) · [Commands](#commands) · [Music](#music) · [Protection](#verification-moderation-and-protection) · [Server reset](#who-can-reset-the-server) · [Levels](#levels) · [Birthdays](#birthdays) · [Update the bot](#update-the-bot) · [Diagnostics](#diagnostics) · [Backups](#backups) · [Troubleshooting](#troubleshooting) · [Limits](#limits) · [Files](#files)
+[Features](#features) · [What you need](#what-you-need) · [Install](#install) · [First time in Discord](#first-time-in-discord) · [Commands](#commands) · [Music](#music) · [Protection](#verification-moderation-and-protection) · [Server reset](#who-can-reset-the-server) · [Levels](#levels) · [Live alerts](#live-alerts) · [Birthdays](#birthdays) · [Update the bot](#update-the-bot) · [Diagnostics](#diagnostics) · [Backups](#backups) · [Troubleshooting](#troubleshooting) · [Limits](#limits) · [Files](#files)
 
 ---
 
@@ -28,6 +28,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 | 👋 **Welcome, suggestions, self-promo** | Welcome message, 👍/👎 plus a discussion thread on suggestions, and a 7-day wait before self-promo. |
 | 🏗️ **Server builder** | `/setup rebuild` builds the whole server layout in one go. It works once, then locks. |
 | 🏅 **Levels** | XP for chatting, `/rank`, `/leaderboard`, level-up messages and reward roles at set levels. |
+| 📺 **Live alerts** | Posts when you go live on Twitch, YouTube or Kick, and when you upload a YouTube video. |
 | 🎂 **Birthdays** | Private set/show commands, an announcement with age, and a 👑 Birthday role for 24 hours. |
 | 🩺 **Status checks** | `/status` lets anyone see if music is down or it's just them. `/diagnostics` gives admins the full picture and what to fix. |
 | 🔄 **Updates** | Optional daily automatic updates with backups and automatic rollback, or `/update` from Discord. |
@@ -127,6 +128,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
+| `/live` | Live and new-video alerts: set the channel and ping role, add or remove accounts, check now |
 | `/automod` | Automod rules: switch on, choose actions, blocked words, allowed sites, limits, exemptions, and a safe test |
 | `/levels` | Levelling: on/off, where level-ups are posted, reward roles, channels without XP, set or reset a member |
 | `/lockdown on · off · status` | Kick anyone new who joins, during a raid |
@@ -222,6 +224,31 @@ Levelling is **on** after updating, with level-up messages posted where the memb
 | `/levels reset user:@x` | Reset a member's XP |
 
 Reward roles can't have mod or admin permissions, can't be the Member or Staff role, and must be below the bot's role.
+
+---
+
+## Live alerts
+
+1. **`/live setup`** creates a read-only **📺・live** channel in your info category (or pick a channel), optionally with a role to ping, e.g. `/live setup ping:@Live Pings`.
+2. **`/live add platform:Twitch account:yourname`**. Repeat for each account (up to 15). Usernames, `@handles` and links all work.
+3. Done. Every 2 minutes the bot checks and posts **once** when you go live, then marks the post "was live" when you stop. For YouTube it also posts each **new video**.
+
+`/live list` shows who's followed and who's live; `/live check` checks right now and tells you if a site couldn't be read; `/live remove` stops following.
+
+| Platform | Live | New videos | How |
+|---|---|---|---|
+| YouTube | ✅ | ✅ | Videos: YouTube's official feed (reliable). Live: the channel's public page |
+| Twitch | ✅ | | Twitch's official API if you add keys (below), otherwise its public page |
+| Kick | ✅ | | Kick's public channel data. Kick sometimes blocks servers, in which case `/live check` says so |
+
+TikTok, Instagram and X can't be followed: they don't offer a way to do it without paid or approved access.
+
+**Reading public pages can break** when a site changes its layout. If alerts stop, run `/live check`. For reliable Twitch alerts, register a free app at [dev.twitch.tv/console](https://dev.twitch.tv/console) (any name, redirect `http://localhost`) and add its keys to `.env`, then run `docker compose up -d`:
+
+```
+TWITCH_CLIENT_ID=your-client-id
+TWITCH_CLIENT_SECRET=your-client-secret
+```
 
 ---
 

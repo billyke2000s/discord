@@ -35,7 +35,7 @@ test('queue arrows have unique IDs, show pages, clamp shrinkage and retain all t
 });
 test('queue paging updates the same view and rejects another user or expired session', async () => {
   const q = queue(),
-    handler = controls.prefixComponents[0][1];
+    handler = controls.prefixComponents['music:queuepage:'];
   let response, updated;
   const i = {
     user: { id: '123' },

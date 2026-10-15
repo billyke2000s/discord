@@ -320,7 +320,7 @@ const components = {
 module.exports = {
   commands: [play, skip, stop, queue, nowplaying],
   components,
-  prefixComponents: [['music:queuepage:', queuePage]],
+  prefixComponents: { 'music:queuepage:': queuePage },
   queueEmbed,
   queuePayload,
 };

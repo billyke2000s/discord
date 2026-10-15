@@ -10,6 +10,7 @@ const updateBridge = require('./lib/update-bridge');
 const scamfilter = require('./lib/scamfilter');
 const antiRaid = require('./lib/antiraid');
 const backup = require('./lib/backup');
+const live = require('./lib/live');
 const { embed, log } = require('./lib/util');
 const { syncGuild } = require('./lib/commandsync');
 const { startHealth } = require('./lib/health');
@@ -72,6 +73,7 @@ client.once(Events.ClientReady, async (c) => {
   });
   if (locked) console.log(`[lockdown] ${locked} lockdown(s) still active after restart`);
   backup.start();
+  live.start(client, getSettings);
   updateBridge.start(client);
   birthday.sweep(client).catch((e) => console.error('[birthday]', e.message));
   setInterval(() => {

@@ -14,6 +14,7 @@ const modules = [
   require('./status'),
   require('./levels'),
   require('./automod'),
+  require('./live'),
 ];
 
 const commands = new Map(); // name -> { data, execute }
