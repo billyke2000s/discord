@@ -177,3 +177,20 @@ pressure; upstream exceptions or HTTP failures would support investigating sourc
 loading; low CPU with audible loss needs network/voice-path investigation. Neither
 a 4 GB allocation nor a large traffic allowance verifies real-time network stability.
 
+## Follow-up review (October 2026)
+
+A later review of commit `b1cdac2` made these changes. All tests, lint and format checks pass; nothing was tested against live Discord or Lavalink.
+
+| Finding | Change |
+|---|---|
+| Remaining issue 1 (outbound URL loading) | Lavalink's generic HTTP source is off, and the bot itself refuses `/play` links outside YouTube, SoundCloud, Twitch, Vimeo and Bandcamp (Spotify is read by the bot). The bot-side check also protects installs whose Lavalink config hasn't been updated yet, since automatic updates replace only the bot. |
+| Remaining issue 2 (creation races) | Per-member in-progress locks stop double ticket channels and double join-to-create channels. Not crash-proof: a restart mid-creation can still leave an orphan. |
+| Raw source errors posted publicly | Track exceptions and failed starts post a fixed message; the error text goes to the bot log only. |
+| Shuffle had no vote | Shuffle uses the same majority vote as back/skip/stop; staff act instantly. |
+| `/untimeout` skipped role order; `/delwarn` unlogged | Both fixed. |
+| Ticket close lost the conversation | A text transcript (up to 1,000 messages) is posted to the log before deletion. |
+| Diagnostics wording and bugs | Uptime showed `M:SS` (7:49 meant 7 minutes); next steps showed on passing checks; Administrator passed; Java memory used the current allocation instead of the maximum; any backup type satisfied the backup check. All fixed, and the report is now a plain summary plus a detailed text file. See [DIAGNOSTICS.md](DIAGNOSTICS.md). |
+| Inconsistent formatting | ESLint and Prettier added and enforced in CI. |
+
+Still open: issues 3 (rebuild backup completeness and CPU), 4 (manual installer continuing after a failed backup), 5 (setup trust model), 6 (no durable music queue) and 7 (external formats and action pinning) above. `better-sqlite3` 13 is available but not adopted; upgrade it deliberately with a test install.
+

@@ -16,7 +16,7 @@ const help = {
       {
         name: '🎵 Music',
         value:
-          '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has vote go back, vote skip, vote stop, shuffle and a queue with page arrows. Back, skip and stop need more than half of the people in the channel.',
+          '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
       },
       {
         name: '🔊 Your voice channel',
@@ -27,11 +27,11 @@ const help = {
       fields.push({
         name: '🛡️ Staff',
         value:
-          '`/warn` `/warnings` `/delwarn` `/timeout` `/untimeout` `/kick` `/ban` `/unban` `/purge` `/slowmode` · music: skip or stop without a vote',
+          '`/warn` `/warnings` `/delwarn` `/timeout` `/untimeout` `/kick` `/ban` `/unban` `/purge` `/slowmode` · music: back, skip, stop or shuffle without a vote',
       });
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
       let admin =
-        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` or `/diagnosis` (grouped checks, server resources and a small speed test; 1-minute cooldown)';
+        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` or `/diagnosis` (checks everything and says what to fix; once a minute)';
       if (isOwner(interaction.user, interaction.guild)) {
         const locked = rebuildLocked(interaction.guildId);
         admin += locked
