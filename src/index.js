@@ -107,7 +107,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           flags: MessageFlags.Ephemeral,
         });
       if (cmd) await cmd.execute(interaction);
-    } else if (interaction.isButton() || interaction.isModalSubmit()) {
+    } else if (interaction.isButton() || interaction.isModalSubmit() || interaction.isAnySelectMenu()) {
       const handler = findComponent(interaction.customId);
       if (handler) await handler(interaction);
     }
