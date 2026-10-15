@@ -7,7 +7,7 @@ const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlis
 const { AudioMonitor } = require('./audio-monitor');
 
 const IDLE_LEAVE_MS = 2 * 60 * 1000; // leave after 2 min with empty queue or empty channel
-const MAX_QUEUE = 500;
+const MAX_QUEUE = 2000; // playback capacity, independent of the visible queue preview
 const PANEL_REFRESH_MS = 5_000;      // how often the panel's time + progress bar update (1 edit / 5 s)
 const VOL_STEP = 10, VOL_MIN = 10, VOL_MAX = 100;
 const BRAND_COLOR = 0x5865f2;
@@ -281,7 +281,7 @@ class GuildQueue {
   // ---------- queue control ----------
   add(tracks) {
     if (this.destroyed) return 0;
-    const room = MAX_QUEUE - this.tracks.length;
+    const room = MAX_QUEUE - this.tracks.length - (this.current ? 1 : 0);
     const added = tracks.slice(0, Math.max(0, room));
     this.tracks.push(...added);
     this.prefetch();

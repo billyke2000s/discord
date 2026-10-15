@@ -51,7 +51,7 @@ and falls back to normal Lavalink loading if discovery/resolution fails. The pag
 format is unofficial and can change. Extra requests are the cost of faster startup.
 
 The rest loads in the background while the first track plays. One import per guild
-is processed at a time; another `/play` waits behind it. Queue capacity remains 500
+is processed at a time; another `/play` waits behind it. Queue capacity is 2,000 (including the current song)
 waiting entries. Stop/disconnect discards imports. An empty queue waits for an import,
 but leaving an empty voice channel still ends the session. Failed imports keep the
 first track and report an error. Playlist order and intentional repeats remain;
@@ -176,3 +176,4 @@ Redact tokens (especially YouTube login messages) before sharing logs.
 pressure; upstream exceptions or HTTP failures would support investigating source
 loading; low CPU with audible loss needs network/voice-path investigation. Neither
 a 4 GB allocation nor a large traffic allowance verifies real-time network stability.
+

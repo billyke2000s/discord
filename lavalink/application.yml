@@ -40,7 +40,7 @@ lavalink:
     resamplingQuality: LOW
     trackStuckThresholdMs: 10000
     useSeekGhosting: true
-    youtubePlaylistLoadLimit: 6
+    youtubePlaylistLoadLimit: 20 # playlist metadata pages; playback queue accepts 2,000 songs
     playerUpdateInterval: 5
     youtubeSearchEnabled: true
     soundcloudSearchEnabled: true
@@ -83,3 +83,4 @@ logging:
     lavalink: INFO
   request:
     enabled: false
+

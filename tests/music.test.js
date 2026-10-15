@@ -67,16 +67,30 @@ test('failed import preserves current track and reports failure', async () => {
 });
 test('queue cap applies to imported entries', async () => {
   const q = queue(); const first = track('0'); q.add([first]); await q.start(); let result;
-  await q.importRemaining(async () => ({ tracks: Array.from({ length: 601 }, (_, i) => track(String(i))) }), first, 'user', async (r) => { result = r; });
-  assert.equal(q.tracks.length, 500); assert.equal(result.omitted, 100); await q.destroy();
+  await q.importRemaining(async () => ({ tracks: Array.from({ length: 2501 }, (_, i) => track(String(i))) }), first, 'user', async (r) => { result = r; });
+  assert.equal(q.tracks.length, 1999); assert.equal(result.omitted, 501); await q.destroy();
 });
 test('Spotify look-ahead is limited to two upcoming entries and reuses in-flight work', async () => {
   let calls = []; const q = queue(async (t) => { calls.push(t.info.identifier); return track(t.info.identifier); });
-  q.add([track('first'), ...Array.from({ length: 200 }, (_, i) => track(String(i), null))]);
+  q.add([track('first'), ...Array.from({ length: 1999 }, (_, i) => track(String(i), null))]);
   await q.start();
   for (let i = 0; i < 10; i++) await Promise.resolve();
   assert.deepEqual(calls, ['0', '1']); await q.next();
   assert.equal(q.player.played[1], '0'); await q.destroy();
+});
+test('2,000 songs are accepted and playback continues beyond the 99-song preview', async () => {
+ const q=queue();
+ assert.equal(q.add(Array.from({length:2000},(_,i)=>track(String(i)))),2000);
+ await q.start();assert.equal(q.add([track('overflow')]),0);
+ for(let i=0;i<100;i++)await q.next();
+ assert.equal(q.current.info.identifier,'100');assert.equal(q.tracks.length,1899);
+ const {queueEmbed}=require('../src/commands/music');
+ const preview=queueEmbed(q,10).toJSON();
+ assert.equal((preview.description.match(/`\d+\.`/g)||[]).length,9);
+ assert.match(preview.footer.text,/showing 99 of 1899 queued tracks/);
+ assert.match(preview.footer.text,/the rest still play/);
+ assert.equal(q.tracks.length,1899);
+ await q.destroy();
 });
 test('per-guild play requests preserve order; a failure does not poison later requests', async () => {
   const manager = { playRequests: new Map() }; const pending = deferred(); const order = [];

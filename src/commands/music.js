@@ -42,15 +42,16 @@ async function doVote(interaction, q, kind) {
 
 function queueEmbed(q, page = 1) {
   const per = 10;
-  const pages = Math.max(1, Math.ceil(q.tracks.length / per));
+  const visible = Math.min(q.tracks.length, 99);
+  const pages = Math.max(1, Math.ceil(visible / per));
   page = Math.min(Math.max(1, page), pages);
-  const slice = q.tracks.slice((page - 1) * per, page * per);
+  const slice = q.tracks.slice((page - 1) * per, Math.min(page * per, visible));
   const lines = slice.map((t, i) => `\`${(page - 1) * per + i + 1}.\` ${truncate(t.info.title, 60)} · ${t.info.isStream ? 'LIVE' : fmtDuration(t.info.length)}`);
   const total = q.tracks.reduce((a, t) => a + (t.info.isStream ? 0 : t.info.length), 0);
   return embed('info')
     .setTitle('📜 Queue')
     .setDescription(`**Now:** ${truncate(q.current.info.title, 80)}\n\n${lines.join('\n') || '*Nothing up next*'}`)
-    .setFooter({ text: `Page ${page}/${pages} · ${q.tracks.length} tracks · ${fmtDuration(total)}` });
+    .setFooter({ text: `Page ${page}/${pages} · showing ${visible} of ${q.tracks.length} queued tracks · ${fmtDuration(total)}${q.tracks.length > 99 ? ' · the rest still play' : ''}` });
 }
 
 // --- commands --------------------------------------------------------------
@@ -213,4 +214,5 @@ const components = {
   },
 };
 
-module.exports = { commands: [play, skip, stop, pause, resume, queue, nowplaying], components };
+module.exports = { commands: [play, skip, stop, pause, resume, queue, nowplaying], components, queueEmbed };
+
