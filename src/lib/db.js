@@ -14,7 +14,9 @@ db.pragma('busy_timeout = 5000'); // wait instead of failing if a backup/other p
 const health = db.pragma('quick_check', { simple: true });
 if (health !== 'ok') {
   console.error(`[db] The database is damaged (${health}). The bot will not start on it.`);
-  console.error('[db] Restore a backup: stop the bot, copy a file from /root/server-bot/backups over the database, start again.');
+  console.error(
+    '[db] Restore a backup: stop the bot, copy a file from /root/server-bot/backups over the database, start again.',
+  );
   console.error('[db] See README -> "Restoring a backup".');
   process.exit(1);
 }
@@ -56,20 +58,20 @@ CREATE TABLE IF NOT EXISTS tickets (
 const DEFAULTS = {
   logChannel: null,
   welcomeChannel: null,
-  rebuildDone: false,        // set after a successful /setup rebuild; locks the command
-  ownerRole: null,           // optional cosmetic role assigned only to the actual server owner
+  rebuildDone: false, // set after a successful /setup rebuild; locks the command
+  ownerRole: null, // optional cosmetic role assigned only to the actual server owner
   birthdayChannel: null,
   birthdayRole: null,
   welcomeMessage: 'Welcome {user} to **{server}**!',
   verify: {
     enabled: false,
-    memberRole: null,        // role granted on pass; @everyone should only see the verify channel
-    timeoutMinutes: 15,      // kick if not verified within this time (0 = never kick)
-    minAccountAgeDays: 3,    // accounts younger than this get flagged in the log channel
+    memberRole: null, // role granted on pass; @everyone should only see the verify channel
+    timeoutMinutes: 15, // kick if not verified within this time (0 = never kick)
+    minAccountAgeDays: 3, // accounts younger than this get flagged in the log channel
   },
   jtc: {
-    lobbyChannel: null,      // the "join to create" channel
-    categoryId: null,        // where new channels go (defaults to lobby's category)
+    lobbyChannel: null, // the "join to create" channel
+    categoryId: null, // where new channels go (defaults to lobby's category)
     defaultLimit: 0,
   },
   tickets: {
@@ -78,33 +80,34 @@ const DEFAULTS = {
   },
   scamFilter: {
     enabled: true,
-    timeoutHours: 24,        // timeout for posting a known scam link (0 = just delete)
-    blockMassPingLinks: true,// non-staff @everyone/@here + link = hacked account, delete + timeout
-    crossChannelSpam: 3,     // same message in this many channels within 30s = hacked account (0 = off)
-    allow: [],               // domains never treated as scams (if a list ever gets one wrong)
+    timeoutHours: 24, // timeout for posting a known scam link (0 = just delete)
+    blockMassPingLinks: true, // non-staff @everyone/@here + link = hacked account, delete + timeout
+    crossChannelSpam: 3, // same message in this many channels within 30s = hacked account (0 = off)
+    allow: [], // domains never treated as scams (if a list ever gets one wrong)
   },
   selfPromo: {
     channel: null,
-    minDays: 7,              // must have been in the server this long to post
+    minDays: 7, // must have been in the server this long to post
   },
   suggestions: {
-    channel: null,           // messages get 👍/👎 and a discussion thread
+    channel: null, // messages get 👍/👎 and a discussion thread
   },
 };
 
 function deepMerge(base, over) {
   const out = { ...base };
   for (const [k, v] of Object.entries(over || {})) {
-    out[k] = v && typeof v === 'object' && !Array.isArray(v) && base[k] && typeof base[k] === 'object'
-      ? deepMerge(base[k], v)
-      : v;
+    out[k] =
+      v && typeof v === 'object' && !Array.isArray(v) && base[k] && typeof base[k] === 'object'
+        ? deepMerge(base[k], v)
+        : v;
   }
   return out;
 }
 
 const getStmt = db.prepare('SELECT data FROM guild_settings WHERE guild_id = ?');
 const setStmt = db.prepare(
-  'INSERT INTO guild_settings (guild_id, data) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET data = excluded.data'
+  'INSERT INTO guild_settings (guild_id, data) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET data = excluded.data',
 );
 
 function getSettings(guildId) {
@@ -120,4 +123,3 @@ function updateSettings(guildId, patch) {
 }
 
 module.exports = { db, getSettings, updateSettings };
-

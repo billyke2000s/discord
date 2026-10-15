@@ -26,9 +26,9 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMembers,     // privileged: enable "Server Members Intent" in the dev portal
+    GatewayIntentBits.GuildMembers, // privileged: enable "Server Members Intent" in the dev portal
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,   // privileged: enable "Message Content Intent" (for edit/delete logs + scam filter)
+    GatewayIntentBits.MessageContent, // privileged: enable "Message Content Intent" (for edit/delete logs + scam filter)
     GatewayIntentBits.GuildModeration,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
@@ -57,8 +57,9 @@ client.once(Events.ClientReady, async (c) => {
   // Register slash commands per server (and hide /setup rebuild where it's locked).
   for (const g of c.guilds.cache.values()) {
     if (process.env.GUILD_ID && g.id !== process.env.GUILD_ID) continue;
-    await ensureConfiguredOwnerRole(g, getSettings(g.id), patch => updateSettings(g.id, patch))
-      .catch((e) => console.error('[owner display role]', e.message));
+    await ensureConfiguredOwnerRole(g, getSettings(g.id), (patch) => updateSettings(g.id, patch)).catch((e) =>
+      console.error('[owner display role]', e.message),
+    );
     await syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
   }
   await voice.sweep(client).catch((e) => console.error('[sweep]', e));
@@ -70,9 +71,9 @@ client.once(Events.ClientReady, async (c) => {
   if (locked) console.log(`[lockdown] ${locked} lockdown(s) still active after restart`);
   backup.start();
   updateBridge.start(client);
-  birthday.sweep(client).catch(e => console.error('[birthday]', e.message));
+  birthday.sweep(client).catch((e) => console.error('[birthday]', e.message));
   setInterval(() => {
-    birthday.sweep(client).catch(e => console.error('[birthday]', e.message));
+    birthday.sweep(client).catch((e) => console.error('[birthday]', e.message));
     verify.sweepUnverified(client).catch((e) => console.error('[verify sweep]', e));
     // empty join-to-create channels older than 10 min
     voice.sweep(client, 10 * 60_000).catch((e) => console.error('[vc sweep]', e));
@@ -81,8 +82,9 @@ client.once(Events.ClientReady, async (c) => {
 
 client.on(Events.GuildCreate, (g) => {
   if (process.env.GUILD_ID && g.id !== process.env.GUILD_ID) return;
-  ensureConfiguredOwnerRole(g, getSettings(g.id), patch => updateSettings(g.id, patch))
-    .catch((e) => console.error('[owner display role]', e.message));
+  ensureConfiguredOwnerRole(g, getSettings(g.id), (patch) => updateSettings(g.id, patch)).catch((e) =>
+    console.error('[owner display role]', e.message),
+  );
   syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
 });
 
@@ -94,7 +96,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // Default slash permissions are configurable in Discord; enforce the
       // command's required permissions again before performing privileged work.
       if (!hasCommandPermission(cmd, interaction.memberPermissions))
-        return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
+        return interaction.reply({
+          content: 'You do not have permission to use this command.',
+          flags: MessageFlags.Ephemeral,
+        });
       if (cmd) await cmd.execute(interaction);
     } else if (interaction.isButton() || interaction.isModalSubmit()) {
       const handler = findComponent(interaction.customId);
@@ -102,7 +107,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (err) {
     console.error(`[interaction ${interaction.commandName || interaction.customId}]`, err);
-    const msg = { content: `Something went wrong: ${String(err.message).slice(0, 300)}`, flags: MessageFlags.Ephemeral };
+    const msg = {
+      content: `Something went wrong: ${String(err.message).slice(0, 300)}`,
+      flags: MessageFlags.Ephemeral,
+    };
     if (interaction.deferred || interaction.replied) await interaction.followUp(msg).catch(() => {});
     else await interaction.reply(msg).catch(() => {});
   }
@@ -115,7 +123,9 @@ async function shutdown() {
   console.log('Shutting down...');
   for (const q of [...client.music.queues.values()]) await q.destroy();
   await client.destroy();
-  try { require('./lib/db').db.close(); } catch {} // writes everything into the main database file
+  try {
+    require('./lib/db').db.close();
+  } catch {} // writes everything into the main database file
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
@@ -125,4 +135,3 @@ client.login(process.env.DISCORD_TOKEN).catch((e) => {
   console.error('Login failed:', e.message);
   process.exit(1);
 });
-

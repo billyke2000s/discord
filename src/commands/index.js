@@ -13,9 +13,9 @@ const modules = [
   require('./diagnostics'),
 ];
 
-const commands = new Map();       // name -> { data, execute }
-const components = new Map();     // exact customId -> handler
-const prefixComponents = [];      // [prefix, handler] for ids like role:<id>
+const commands = new Map(); // name -> { data, execute }
+const components = new Map(); // exact customId -> handler
+const prefixComponents = []; // [prefix, handler] for ids like role:<id>
 
 for (const m of modules) {
   for (const c of m.commands || []) {
@@ -35,4 +35,3 @@ function findComponent(customId) {
 }
 
 module.exports = { commands, findComponent };
-

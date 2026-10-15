@@ -24,7 +24,9 @@ function schedule(guildId, until, onExpire) {
 
 function lock(guildId, minutes, onExpire) {
   const until = minutes ? Date.now() + minutes * 60_000 : 0;
-  db.prepare('INSERT INTO lockdowns (guild_id, until) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET until = excluded.until').run(guildId, until);
+  db.prepare(
+    'INSERT INTO lockdowns (guild_id, until) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET until = excluded.until',
+  ).run(guildId, until);
   schedule(guildId, until, onExpire);
 }
 
@@ -48,7 +50,11 @@ function lockInfo(guildId) {
 // onExpire(guildId) is called when a timed one ends.
 function restore(onExpire) {
   for (const row of db.prepare('SELECT * FROM lockdowns').all()) {
-    if (row.until && row.until <= Date.now()) { unlock(row.guild_id); onExpire?.(row.guild_id); continue; }
+    if (row.until && row.until <= Date.now()) {
+      unlock(row.guild_id);
+      onExpire?.(row.guild_id);
+      continue;
+    }
     schedule(row.guild_id, row.until, () => onExpire?.(row.guild_id));
   }
   return db.prepare('SELECT COUNT(*) c FROM lockdowns').get().c;

@@ -12,7 +12,11 @@ const LOCK_DIR = process.env.LOCK_DIR || path.join(__dirname, '..', '..', 'locks
 const lockFile = (guildId) => path.join(LOCK_DIR, `rebuild-done-${guildId}`);
 
 function hasLockFile(guildId) {
-  try { return fs.existsSync(lockFile(guildId)); } catch { return false; }
+  try {
+    return fs.existsSync(lockFile(guildId));
+  } catch {
+    return false;
+  }
 }
 
 function rebuildLocked(guildId) {
@@ -25,7 +29,10 @@ function markRebuildDone(guildId) {
   updateSettings(guildId, { rebuildDone: true });
   try {
     fs.mkdirSync(LOCK_DIR, { recursive: true });
-    fs.writeFileSync(lockFile(guildId), `Server ${guildId} was built on ${new Date().toISOString()}.\nTo allow /setup rebuild again, set ALLOW_REBUILD=yes in .env and restart the bot.\n`);
+    fs.writeFileSync(
+      lockFile(guildId),
+      `Server ${guildId} was built on ${new Date().toISOString()}.\nTo allow /setup rebuild again, set ALLOW_REBUILD=yes in .env and restart the bot.\n`,
+    );
   } catch (e) {
     console.error(`[lock] couldn't write ${lockFile(guildId)}: ${e.message}`);
   }
@@ -33,7 +40,8 @@ function markRebuildDone(guildId) {
 
 // On start: if only one copy exists (e.g. the database was wiped), restore the other.
 function repairLock(guildId) {
-  const db = !!getSettings(guildId).rebuildDone, file = hasLockFile(guildId);
+  const db = !!getSettings(guildId).rebuildDone,
+    file = hasLockFile(guildId);
   if (db !== file && (db || file)) markRebuildDone(guildId);
 }
 
@@ -52,7 +60,9 @@ async function syncGuild(guild) {
   repairLock(guild.id);
   const body = commandBody(guild.id);
   await guild.commands.set(body);
-  console.log(`[commands] ${body.length} commands registered in ${guild.name}${rebuildLocked(guild.id) ? ' (/setup rebuild hidden: locked)' : ''}`);
+  console.log(
+    `[commands] ${body.length} commands registered in ${guild.name}${rebuildLocked(guild.id) ? ' (/setup rebuild hidden: locked)' : ''}`,
+  );
 }
 
 module.exports = { rebuildLocked, markRebuildDone, repairLock, commandBody, syncGuild, LOCK_DIR };

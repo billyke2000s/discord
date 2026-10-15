@@ -11,11 +11,25 @@ test('page bootstrap excludes unrelated video IDs and handles split chunks', asy
   const html = '{"videoId":"wrongwrong1"} {"playlistVideoRenderer":{"videoId":"abcdefghijk"}}';
   assert.equal(firstVideo(html), 'abcdefghijk');
   const bytes = new TextEncoder().encode(html);
-  const result = await bootstrapVideo({ list: 'PL123' }, async () => ({ ok: true, body: new ReadableStream({ start(c) { c.enqueue(bytes.slice(0, 75)); c.enqueue(bytes.slice(75)); c.close(); } }) }));
+  const result = await bootstrapVideo({ list: 'PL123' }, async () => ({
+    ok: true,
+    body: new ReadableStream({
+      start(c) {
+        c.enqueue(bytes.slice(0, 75));
+        c.enqueue(bytes.slice(75));
+        c.close();
+      },
+    }),
+  }));
   assert.equal(result, 'abcdefghijk');
 });
 test('watch link does not fetch HTML and selected track is removed only once', async () => {
-  assert.equal(await bootstrapVideo({ video: 'abcdefghijk' }, () => { throw new Error('unexpected fetch'); }), 'abcdefghijk');
+  assert.equal(
+    await bootstrapVideo({ video: 'abcdefghijk' }, () => {
+      throw new Error('unexpected fetch');
+    }),
+    'abcdefghijk',
+  );
   const t = (id) => ({ info: { identifier: id } });
   assert.deepEqual(withoutBootstrap([t('a'), t('b'), t('b'), t('c')], t('b')), [t('b'), t('c')]);
 });

@@ -9,8 +9,9 @@ const { AudioMonitor } = require('./audio-monitor');
 
 const IDLE_LEAVE_MS = 2 * 60 * 1000; // leave after 2 min with empty queue or empty channel
 const MAX_QUEUE = 2000; // playback capacity, independent of the visible queue preview
-const PANEL_REFRESH_MS = 5_000;      // how often the panel's time + progress bar update (1 edit / 5 s)
-const VOL_MIN = 10, VOL_MAX = 100;
+const PANEL_REFRESH_MS = 5_000; // how often the panel's time + progress bar update (1 edit / 5 s)
+const VOL_MIN = 10,
+  VOL_MAX = 100;
 const BRAND_COLOR = 0x5865f2;
 
 // Staff can skip or stop without a vote. Staff = Moderate Members permission (Staff/Admin roles), the owner, or a bot admin.
@@ -21,10 +22,22 @@ function isStaff(member) {
 // Links members may give to /play. Anything else would make the music server fetch an arbitrary
 // address from the VPS (including private addresses), so it is refused before reaching Lavalink.
 // Checked here too because automatic updates replace only the bot, not lavalink/application.yml.
-const LINK_HOSTS = ['youtube.com', 'youtu.be', 'youtube-nocookie.com', 'soundcloud.com', 'twitch.tv', 'vimeo.com', 'bandcamp.com'];
+const LINK_HOSTS = [
+  'youtube.com',
+  'youtu.be',
+  'youtube-nocookie.com',
+  'soundcloud.com',
+  'twitch.tv',
+  'vimeo.com',
+  'bandcamp.com',
+];
 function isSupportedLink(query) {
   let url;
-  try { url = new URL(query); } catch { return false; }
+  try {
+    url = new URL(query);
+  } catch {
+    return false;
+  }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port) return false;
   const host = url.hostname.toLowerCase();
   return LINK_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
@@ -36,25 +49,91 @@ const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\/\S+$/i.test(u) ? u
 // ---------- Spotify -> YouTube matching ----------
 const GOOD_MATCH = 70;
 // Album words that say nothing about which album it is.
-const ALBUM_FILLER = new Set(['the', 'and', 'original', 'soundtrack', 'ost', 'set', 'deluxe', 'edition', 'version', 'ver',
-  'remaster', 'remastered', 'digital', 'expanded', 'anniversary', 'vol', 'volume', 'part', 'disc', 'music', 'from',
-  'motion', 'picture', 'game', 'video', 'series', 'songs', 'collection', 'greatest', 'hits', 'best', 'album', 'single', 'ep']);
+const ALBUM_FILLER = new Set([
+  'the',
+  'and',
+  'original',
+  'soundtrack',
+  'ost',
+  'set',
+  'deluxe',
+  'edition',
+  'version',
+  'ver',
+  'remaster',
+  'remastered',
+  'digital',
+  'expanded',
+  'anniversary',
+  'vol',
+  'volume',
+  'part',
+  'disc',
+  'music',
+  'from',
+  'motion',
+  'picture',
+  'game',
+  'video',
+  'series',
+  'songs',
+  'collection',
+  'greatest',
+  'hits',
+  'best',
+  'album',
+  'single',
+  'ep',
+]);
 const albumWords = (album) => [...new Set(words(album).filter((w) => w.length >= 4 && !ALBUM_FILLER.has(w)))];
 // "Catherine & Catherine Full Body Soundtrack Set" -> "Catherine Full Body" (what fans put in upload titles)
 const albumQuery = (album) => albumWords(album).slice(0, 4).join(' ');
 // Versions people upload that are NOT the original song. Penalised unless the Spotify title has the word too.
-const ALT_VERSION = ['sped up', 'speed up', 'slowed', 'nightcore', 'reverb', '8d', 'bass boosted', 'karaoke',
-  'instrumental', 'cover', 'remix', 'live', 'acapella', 'a cappella', '1 hour', '1hr', 'hour', 'loop', 'looped',
-  'extended', 'reaction', 'piano version', 'lyrics video'];
-const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const words = (s) => norm(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+const ALT_VERSION = [
+  'sped up',
+  'speed up',
+  'slowed',
+  'nightcore',
+  'reverb',
+  '8d',
+  'bass boosted',
+  'karaoke',
+  'instrumental',
+  'cover',
+  'remix',
+  'live',
+  'acapella',
+  'a cappella',
+  '1 hour',
+  '1hr',
+  'hour',
+  'loop',
+  'looped',
+  'extended',
+  'reaction',
+  'piano version',
+  'lyrics video',
+];
+const norm = (s) =>
+  String(s || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+const words = (s) =>
+  norm(s)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
 const compact = (s) => words(s).join('');
 
 // 0-100ish: how likely YouTube result `r` is the exact Spotify song `want` (same artist, same title, same length).
 function matchScore(want, r) {
   let score = 0;
-  const ytTitle = norm(r.title), channel = compact(String(r.author || '').replace(/- topic$/i, ''));
-  const artists = String(want.author || '').split(',').map(compact).filter((a) => a.length >= 2);
+  const ytTitle = norm(r.title),
+    channel = compact(String(r.author || '').replace(/- topic$/i, ''));
+  const artists = String(want.author || '')
+    .split(',')
+    .map(compact)
+    .filter((a) => a.length >= 2);
   // Artist: the channel is the artist (YouTube Music / "Artist - Topic" / ArtistVEVO), or the artist is named in the title.
   if (artists.some((a) => channel && (channel.includes(a) || a.includes(channel)))) score += 40;
   else if (artists.some((a) => compact(r.title).includes(a))) score += 25;
@@ -91,8 +170,8 @@ class GuildQueue {
     this.guildId = guildId;
     this.sessionId = randomBytes(8).toString('hex');
     this.player = player;
-    this.textChannel = textChannel;       // where the panel goes: the voice channel's own chat if I can post there
-    this.fallbackChannel = null;          // the channel /play was used in, if the voice chat fails
+    this.textChannel = textChannel; // where the panel goes: the voice channel's own chat if I can post there
+    this.fallbackChannel = null; // the channel /play was used in, if the voice chat fails
     this.voiceChannelId = voiceChannelId;
     this.tracks = [];
     this.current = null;
@@ -122,7 +201,7 @@ class GuildQueue {
       if (typeof d?.state?.position === 'number') this.clock = { base: d.state.position, at: Date.now() };
     });
     player.on('start', (event) => {
-      if(!this.matchesPlaybackEvent(event))return;
+      if (!this.matchesPlaybackEvent(event)) return;
       this.monitor.start();
       this.monitor.pause(this.player.paused);
       this.clock = { base: 0, at: Date.now() };
@@ -135,26 +214,33 @@ class GuildQueue {
     player.on('end', (e) => {
       // 'replaced' = we called playTrack over it; 'cleanup' = player destroyed. Don't advance on those.
       if (e.reason === 'replaced' || e.reason === 'cleanup') return;
-      if(!this.matchesPlaybackEvent(e))return;
+      if (!this.matchesPlaybackEvent(e)) return;
       this.monitor.stop(e.reason);
       this.advanceAfterEvent(e);
     });
     player.on('stuck', (e) => {
-      if(!this.matchesPlaybackEvent(e))return;
+      if (!this.matchesPlaybackEvent(e)) return;
       this.monitor.emit('track-stuck');
       this.monitor.stop('stuck');
       this.advanceAfterEvent(e);
     });
     player.on('exception', (e) => {
-      if(!this.matchesPlaybackEvent(e))return;
+      if (!this.matchesPlaybackEvent(e)) return;
       // Raw source error text may contain signed URLs or credentials: keep it out of public chat.
       // Only the event type is recorded; the error text goes to the private bot log.
       this.monitor.emit('track-exception');
       console.warn('[music] track exception:', truncate(e.exception?.message || 'unknown error', 300));
-      this.send(embed('bad').setDescription(`Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**. Skipping to the next song.`));
+      this.send(
+        embed('bad').setDescription(
+          `Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**. Skipping to the next song.`,
+        ),
+      );
       this.advanceAfterEvent(e);
     });
-    player.on('closed', () => { this.monitor.emit('voice-closed'); this.destroy(); });
+    player.on('closed', () => {
+      this.monitor.emit('voice-closed');
+      this.destroy();
+    });
   }
 
   // Where the song is right now, in ms.
@@ -217,7 +303,7 @@ class GuildQueue {
       return this.skip();
     }
     const previous = this.voteStatus('previous');
-    if(previous.count > 0 && previous.count >= previous.needed && this.history.length) {
+    if (previous.count > 0 && previous.count >= previous.needed && this.history.length) {
       this.send(embed('grey').setDescription('⏮ Going back to the previous song by vote.'));
       return this.previous();
     }
@@ -233,7 +319,10 @@ class GuildQueue {
   // ---------- panel ----------
   panelPayload(state = 'playing') {
     const me = this.guild?.members.me;
-    const brand = { name: `${me?.displayName || 'Music'} · Music`, iconURL: safeUrl(me?.displayAvatarURL()) || undefined };
+    const brand = {
+      name: `${me?.displayName || 'Music'} · Music`,
+      iconURL: safeUrl(me?.displayAvatarURL()) || undefined,
+    };
     const t = this.current;
 
     if (state !== 'playing' || !t) {
@@ -241,14 +330,27 @@ class GuildQueue {
       return { embeds: [embed(BRAND_COLOR).setAuthor(brand).setDescription(text)], components: [] };
     }
 
-    const len = t.info.length, pos = Math.max(0, Math.min(this.position(), len || 0));
-    const time = t.info.isStream ? '🔴 LIVE' : `\`${fmtDuration(pos)}\` ${progressBar(pos, len)} \`${fmtDuration(len)}\``;
-    const next = this.tracks.slice(0, 3).map((x, i) => `\`${i + 1}.\` ${truncate(x.info.title, 55)}`).join('\n') || '*Nothing — add songs with `/play`*';
-    const skip = this.voteStatus('skip'), stop = this.voteStatus('stop'), previous = this.voteStatus('previous'), shuffle = this.voteStatus('shuffle');
+    const len = t.info.length,
+      pos = Math.max(0, Math.min(this.position(), len || 0));
+    const time = t.info.isStream
+      ? '🔴 LIVE'
+      : `\`${fmtDuration(pos)}\` ${progressBar(pos, len)} \`${fmtDuration(len)}\``;
+    const next =
+      this.tracks
+        .slice(0, 3)
+        .map((x, i) => `\`${i + 1}.\` ${truncate(x.info.title, 55)}`)
+        .join('\n') || '*Nothing — add songs with `/play`*';
+    const skip = this.voteStatus('skip'),
+      stop = this.voteStatus('stop'),
+      previous = this.voteStatus('previous'),
+      shuffle = this.voteStatus('shuffle');
     const paused = this.player.paused;
     // Spotify songs: show which YouTube upload is really playing, so a wrong match is easy to spot.
-    const pf = t.playedFrom, pfUrl = safeUrl(pf?.uri);
-    const from = pf ? `\n▶ YouTube: ${pfUrl ? `[${truncate(pf.title, 70).replace(/[[\]]/g, '')}](${pfUrl})` : truncate(pf.title, 70)}${pf.author ? ` · ${truncate(pf.author, 40)}` : ''}` : '';
+    const pf = t.playedFrom,
+      pfUrl = safeUrl(pf?.uri);
+    const from = pf
+      ? `\n▶ YouTube: ${pfUrl ? `[${truncate(pf.title, 70).replace(/[[\]]/g, '')}](${pfUrl})` : truncate(pf.title, 70)}${pf.author ? ` · ${truncate(pf.author, 40)}` : ''}`
+      : '';
 
     const e = embed(BRAND_COLOR)
       .setAuthor(brand)
@@ -262,13 +364,33 @@ class GuildQueue {
         { name: 'In queue', value: String(this.tracks.length), inline: true },
         { name: 'Up next', value: next },
       )
-      .setFooter({ text: `Back, skip, stop and shuffle need a majority (${skip.needed} of ${this.listeners().size} listening). Staff can act instantly.` });
+      .setFooter({
+        text: `Back, skip, stop and shuffle need a majority (${skip.needed} of ${this.listeners().size} listening). Staff can act instantly.`,
+      });
 
     const row1 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('music:previous').setEmoji('⏮️').setLabel(previous.count ? `Back ${previous.count}/${previous.needed}` : 'Vote go back').setStyle(ButtonStyle.Primary).setDisabled(!this.history.length),
-      new ButtonBuilder().setCustomId('music:skip').setEmoji('⏭️').setLabel(skip.count ? `Skip ${skip.count}/${skip.needed}` : 'Vote skip').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('music:stop').setEmoji('⏹️').setLabel(stop.count ? `Stop ${stop.count}/${stop.needed}` : 'Vote stop').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('music:shuffle').setEmoji('🔀').setLabel(shuffle.count ? `Shuffle ${shuffle.count}/${shuffle.needed}` : 'Vote shuffle').setStyle(ButtonStyle.Secondary).setDisabled(this.tracks.length < 2),
+      new ButtonBuilder()
+        .setCustomId('music:previous')
+        .setEmoji('⏮️')
+        .setLabel(previous.count ? `Back ${previous.count}/${previous.needed}` : 'Vote go back')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!this.history.length),
+      new ButtonBuilder()
+        .setCustomId('music:skip')
+        .setEmoji('⏭️')
+        .setLabel(skip.count ? `Skip ${skip.count}/${skip.needed}` : 'Vote skip')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('music:stop')
+        .setEmoji('⏹️')
+        .setLabel(stop.count ? `Stop ${stop.count}/${stop.needed}` : 'Vote stop')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId('music:shuffle')
+        .setEmoji('🔀')
+        .setLabel(shuffle.count ? `Shuffle ${shuffle.count}/${shuffle.needed}` : 'Vote shuffle')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(this.tracks.length < 2),
       new ButtonBuilder().setCustomId('music:queue').setEmoji('📜').setLabel('Queue').setStyle(ButtonStyle.Secondary),
     );
     return { embeds: [e], components: [row1] };
@@ -280,14 +402,24 @@ class GuildQueue {
     const generation = ++this.panelGeneration;
     const old = this.panelMsg;
     let payload;
-    try { payload = this.panelPayload(); } catch (e) { return console.error('[music panel]', e.message); }
+    try {
+      payload = this.panelPayload();
+    } catch (e) {
+      return console.error('[music panel]', e.message);
+    }
     let message = await this.textChannel.send(payload).catch(() => null);
-    if (this.destroyed || generation !== this.panelGeneration) { await message?.delete().catch(() => {}); return; }
+    if (this.destroyed || generation !== this.panelGeneration) {
+      await message?.delete().catch(() => {});
+      return;
+    }
     if (!message && this.fallbackChannel && this.fallbackChannel !== this.textChannel) {
       this.textChannel = this.fallbackChannel; // voice chat didn't work: use the /play channel from now on
       message = await this.textChannel.send(payload).catch(() => null);
     }
-    if (this.destroyed || generation !== this.panelGeneration) { await message?.delete().catch(() => {}); return; }
+    if (this.destroyed || generation !== this.panelGeneration) {
+      await message?.delete().catch(() => {});
+      return;
+    }
     this.panelMsg = message;
     if (old) old.delete().catch(() => {});
     clearInterval(this.panelTimer);
@@ -297,7 +429,11 @@ class GuildQueue {
   refreshPanel(state) {
     if (!this.panelMsg) return;
     let payload;
-    try { payload = this.panelPayload(state); } catch (e) { return console.error('[music panel]', e.message); }
+    try {
+      payload = this.panelPayload(state);
+    } catch (e) {
+      return console.error('[music panel]', e.message);
+    }
     return this.panelMsg.edit(payload).catch(() => {});
   }
 
@@ -315,7 +451,8 @@ class GuildQueue {
     if (this.destroyed) return 0;
     // Replaying a previously imported song does not discard queued songs or
     // consume another import slot; the original interrupted song stays up next.
-    const room = MAX_QUEUE - this.tracks.filter(t=>!t.replay).length - (this.current && !this.current.replay ? 1 : 0);
+    const room =
+      MAX_QUEUE - this.tracks.filter((t) => !t.replay).length - (this.current && !this.current.replay ? 1 : 0);
     const added = tracks.slice(0, Math.max(0, room));
     this.tracks.push(...added);
     this.prefetch();
@@ -348,15 +485,19 @@ class GuildQueue {
     if (track.encoded) return Promise.resolve(track);
     if (this.preparing.has(track)) return this.preparing.get(track);
     const revision = this.revision;
-    const task = this.manager.findOnYouTube(track).then((found) => {
-      if (this.destroyed || revision !== this.revision || !found) return null;
-      track.encoded = found.encoded;
-      track.info.length = found.info.length || track.info.length;
-      track.info.artworkUrl = found.info.artworkUrl || null;
-      track.playedFrom = { title: found.info.title, author: found.info.author, uri: found.info.uri };
-      track.playbackInfo = {identifier:found.info.identifier,sourceName:found.info.sourceName};
-      return track;
-    }).catch(() => null).finally(() => this.preparing.delete(track));
+    const task = this.manager
+      .findOnYouTube(track)
+      .then((found) => {
+        if (this.destroyed || revision !== this.revision || !found) return null;
+        track.encoded = found.encoded;
+        track.info.length = found.info.length || track.info.length;
+        track.info.artworkUrl = found.info.artworkUrl || null;
+        track.playedFrom = { title: found.info.title, author: found.info.author, uri: found.info.uri };
+        track.playbackInfo = { identifier: found.info.identifier, sourceName: found.info.sourceName };
+        return track;
+      })
+      .catch(() => null)
+      .finally(() => this.preparing.delete(track));
     this.preparing.set(track, task);
     return task;
   }
@@ -369,7 +510,9 @@ class GuildQueue {
         if (this.destroyed) break;
         await this.prepare(track);
       }
-    } finally { this.prefetching = false; }
+    } finally {
+      this.prefetching = false;
+    }
   }
 
   importRemaining(loader, first, requester, report) {
@@ -399,49 +542,57 @@ class GuildQueue {
 
   next() {
     if (this.transition) return this.transition;
-    const task = this.advance().finally(() => { if (this.transition === task) this.transition = null; });
+    const task = this.advance().finally(() => {
+      if (this.transition === task) this.transition = null;
+    });
     this.transition = task;
     return task;
   }
 
   matchesPlaybackEvent(event) {
-    if(this.destroyed || !this.current)return false;
-    const track=event?.track;
-    const id=track?.userData?.serverBotPlaybackId;
-    if(id!==undefined)return id===this.playback?.id;
+    if (this.destroyed || !this.current) return false;
+    const track = event?.track;
+    const id = track?.userData?.serverBotPlaybackId;
+    if (id !== undefined) return id === this.playback?.id;
     // Compatibility for sources which omit userData: compare stable source identity
     // before encoded data, which can change when a server serializes a track.
-    const info=this.current.playbackInfo||this.current.info;
-    if(track?.info?.identifier && info.identifier) {
-      return track.info.identifier===info.identifier &&
-        (!track.info.sourceName || !info.sourceName || track.info.sourceName===info.sourceName);
+    const info = this.current.playbackInfo || this.current.info;
+    if (track?.info?.identifier && info.identifier) {
+      return (
+        track.info.identifier === info.identifier &&
+        (!track.info.sourceName || !info.sourceName || track.info.sourceName === info.sourceName)
+      );
     }
-    return !track?.encoded || track.encoded===this.current.encoded;
+    return !track?.encoded || track.encoded === this.current.encoded;
   }
 
   advanceAfterEvent(event) {
     const ended = this.current;
     if (!this.matchesPlaybackEvent(event)) return;
-    const playback=this.playback;
-    const ending=playback?.id||ended;
+    const playback = this.playback;
+    const ending = playback?.id || ended;
     // A very short/failed track can end before the play REST request settles.
     // Preserve that event and coalesce duplicates for this exact queue entry.
     if (this.ending === ending) return;
     this.ending = ending;
-    this.monitor.emit('queue-advance',{queued:this.tracks.length});
-    Promise.resolve(this.transition).then(() => {
-      if (!this.destroyed && this.current === ended && this.playback===playback) return this.next();
-    }).catch((err) => console.error('[music advance]', err.message))
-      .finally(() => { if (this.ending === ending) this.ending = null; });
+    this.monitor.emit('queue-advance', { queued: this.tracks.length });
+    Promise.resolve(this.transition)
+      .then(() => {
+        if (!this.destroyed && this.current === ended && this.playback === playback) return this.next();
+      })
+      .catch((err) => console.error('[music advance]', err.message))
+      .finally(() => {
+        if (this.ending === ending) this.ending = null;
+      });
   }
 
   async advance() {
     if (this.destroyed) return;
-    if(this.current && this.playedCurrent) {
+    if (this.current && this.playedCurrent) {
       this.history.push(this.current);
-      if(this.history.length>MAX_QUEUE)this.history.shift();
+      if (this.history.length > MAX_QUEUE) this.history.shift();
     }
-    this.playedCurrent=false;
+    this.playedCurrent = false;
     for (;;) {
       this.current = this.tracks.shift() || null;
       if (!this.current) {
@@ -452,18 +603,26 @@ class GuildQueue {
       const track = this.current;
       if (track.encoded) {
         this.clearIdle();
-        this.playback={id:randomBytes(12).toString('hex'),entry:track};
+        this.playback = { id: randomBytes(12).toString('hex'), entry: track };
         try {
-          await this.player.playTrack({ track: { encoded: track.encoded,
-            userData:{serverBotPlaybackId:this.playback.id} },position:0,endTime:null,paused:false });
+          await this.player.playTrack({
+            track: { encoded: track.encoded, userData: { serverBotPlaybackId: this.playback.id } },
+            position: 0,
+            endTime: null,
+            paused: false,
+          });
           if (this.destroyed) return;
-          this.playedCurrent=true;
+          this.playedCurrent = true;
           this.prefetch();
           return;
         } catch (err) {
           this.monitor.emit('play-request-failed');
           console.warn('[music] play request failed:', truncate(err.message, 300));
-          this.send(embed('bad').setDescription(`Couldn't start **${truncate(track.info.title, 80)}**. Skipping to the next song.`));
+          this.send(
+            embed('bad').setDescription(
+              `Couldn't start **${truncate(track.info.title, 80)}**. Skipping to the next song.`,
+            ),
+          );
           continue;
         }
       }
@@ -475,7 +634,11 @@ class GuildQueue {
         this.tracks.unshift(track);
         continue;
       }
-      this.send(embed('grey').setDescription(`Couldn't find **${truncate(this.current.info.title, 80)}** on YouTube, skipping it.`));
+      this.send(
+        embed('grey').setDescription(
+          `Couldn't find **${truncate(this.current.info.title, 80)}** on YouTube, skipping it.`,
+        ),
+      );
     }
   }
 
@@ -483,28 +646,30 @@ class GuildQueue {
     const target = this.current;
     if (this.transition) await this.transition;
     if (this.destroyed || !target || this.current !== target) return;
-    const playback=this.playback;
+    const playback = this.playback;
     await this.player.stopTrack();
     // REST success confirms the stop. Advance even if its websocket event is
     // delayed/missing, while coalescing an event that already triggered advance.
-    if(!this.destroyed && this.current===target && this.playback===playback)
-      this.advanceAfterEvent({track:{userData:{serverBotPlaybackId:playback?.id}}});
+    if (!this.destroyed && this.current === target && this.playback === playback)
+      this.advanceAfterEvent({ track: { userData: { serverBotPlaybackId: playback?.id } } });
   }
 
   previous() {
-    if(this.previousTransition)return this.previousTransition;
-    const target=this.current;
-    const task=(async()=>{
-      if(this.transition)await this.transition;
-      if(this.destroyed || !target || target!==this.current || !this.history.length)return false;
-      const back=this.history.pop();
+    if (this.previousTransition) return this.previousTransition;
+    const target = this.current;
+    const task = (async () => {
+      if (this.transition) await this.transition;
+      if (this.destroyed || !target || target !== this.current || !this.history.length) return false;
+      const back = this.history.pop();
       this.tracks.unshift(target);
-      this.tracks.unshift({...back,replay:true});
-      this.playedCurrent=false;
+      this.tracks.unshift({ ...back, replay: true });
+      this.playedCurrent = false;
       await this.next();
       return true;
-    })().finally(()=>{if(this.previousTransition===task)this.previousTransition=null;});
-    this.previousTransition=task;
+    })().finally(() => {
+      if (this.previousTransition === task) this.previousTransition = null;
+    });
+    this.previousTransition = task;
     return task;
   }
 
@@ -583,8 +748,11 @@ class MusicManager {
     const previous = this.playRequests.get(guildId) || Promise.resolve();
     const task = previous.catch(() => {}).then(work);
     this.playRequests.set(guildId, task);
-    try { return await task; }
-    finally { if (this.playRequests.get(guildId) === task) this.playRequests.delete(guildId); }
+    try {
+      return await task;
+    } finally {
+      if (this.playRequests.get(guildId) === task) this.playRequests.delete(guildId);
+    }
   }
 
   async resolve(query) {
@@ -597,7 +765,14 @@ class MusicManager {
         encoded: null,
         search: `${t.title} ${t.artist}`.trim(),
         album: sp.type === 'album' ? sp.name : undefined, // playlists/single songs: looked up only if needed
-        info: { title: t.title, author: t.artist, length: t.length, uri: spotify.openUrl(t.uri), isStream: false, artworkUrl: null },
+        info: {
+          title: t.title,
+          author: t.artist,
+          length: t.length,
+          uri: spotify.openUrl(t.uri),
+          isStream: false,
+          artworkUrl: null,
+        },
       }));
       return sp.type === 'track' ? { tracks } : { tracks, playlist: sp.name };
     }
@@ -608,27 +783,62 @@ class MusicManager {
     const res = await node.rest.resolve(isUrl ? query : `${this.searchPrefix}:${query}`);
     if (!res) return { tracks: [] };
     switch (res.loadType) {
-      case 'track': return { tracks: [res.data] };
-      case 'search': return { tracks: res.data.slice(0, 1) };
-      case 'playlist': return { tracks: res.data.tracks, playlist: res.data.info.name };
-      case 'error': throw new Error(res.data?.message || 'Lavalink could not load that.');
-      default: return { tracks: [] };
+      case 'track':
+        return { tracks: [res.data] };
+      case 'search':
+        return { tracks: res.data.slice(0, 1) };
+      case 'playlist':
+        return { tracks: res.data.tracks, playlist: res.data.info.name };
+      case 'error':
+        throw new Error(res.data?.message || 'Lavalink could not load that.');
+      default:
+        return { tracks: [] };
     }
   }
 
   async resolveForPlayback(query) {
-    if(spotify.isSpotifyUrl(query)) {
-      const sp=await spotify.loadForPlayback(query);
-      const tracks=sp.tracks.map(t=>({encoded:null,search:`${t.title} ${t.artist}`.trim(),
-        album:sp.type==='album' && !sp.remaining?sp.name:undefined,
-        info:{title:t.title,author:t.artist,length:t.length,uri:spotify.openUrl(t.uri),isStream:false,artworkUrl:null}}));
-      return {tracks,...(sp.type==='track'?{}:{playlist:sp.name}),
-        ...(sp.remaining?{remaining:async()=>{
-          const rest=await sp.remaining();
-          return {playlist:rest.name,tracks:rest.tracks.map(t=>({encoded:null,search:`${t.title} ${t.artist}`.trim(),
-            album:rest.type==='album'?rest.name:undefined,
-            info:{title:t.title,author:t.artist,length:t.length,uri:spotify.openUrl(t.uri),isStream:false,artworkUrl:null}}))};
-        }}:{})};
+    if (spotify.isSpotifyUrl(query)) {
+      const sp = await spotify.loadForPlayback(query);
+      const tracks = sp.tracks.map((t) => ({
+        encoded: null,
+        search: `${t.title} ${t.artist}`.trim(),
+        album: sp.type === 'album' && !sp.remaining ? sp.name : undefined,
+        info: {
+          title: t.title,
+          author: t.artist,
+          length: t.length,
+          uri: spotify.openUrl(t.uri),
+          isStream: false,
+          artworkUrl: null,
+        },
+      }));
+      return {
+        tracks,
+        ...(sp.type === 'track' ? {} : { playlist: sp.name }),
+        ...(sp.remaining
+          ? {
+              remaining: async () => {
+                const rest = await sp.remaining();
+                return {
+                  playlist: rest.name,
+                  tracks: rest.tracks.map((t) => ({
+                    encoded: null,
+                    search: `${t.title} ${t.artist}`.trim(),
+                    album: rest.type === 'album' ? rest.name : undefined,
+                    info: {
+                      title: t.title,
+                      author: t.artist,
+                      length: t.length,
+                      uri: spotify.openUrl(t.uri),
+                      isStream: false,
+                      artworkUrl: null,
+                    },
+                  })),
+                };
+              },
+            }
+          : {}),
+      };
     }
     const playlist = youtubePlaylist(query);
     if (playlist) {
@@ -636,9 +846,12 @@ class MusicManager {
         const video = await bootstrapVideo(playlist);
         if (video) {
           const first = await this.resolve(`https://www.youtube.com/watch?v=${video}`);
-          if (first.tracks.length) return { ...first, playlist: 'YouTube playlist', remaining: () => this.resolve(query) };
+          if (first.tracks.length)
+            return { ...first, playlist: 'YouTube playlist', remaining: () => this.resolve(query) };
         }
-      } catch (err) { console.warn('[playlist bootstrap] falling back:', err.message); }
+      } catch (err) {
+        console.warn('[playlist bootstrap] falling back:', err.message);
+      }
     }
     return this.resolve(query);
   }
@@ -660,8 +873,11 @@ class MusicManager {
       }
       return best && best.score >= GOOD_MATCH;
     };
-    if (this.searchPrefix === 'scsearch') { await tryQuery('scsearch', t.search); return best?.track || null; }
-    if (await tryQuery('ytmsearch', t.search) || await tryQuery('ytsearch', t.search)) return best.track;
+    if (this.searchPrefix === 'scsearch') {
+      await tryQuery('scsearch', t.search);
+      return best?.track || null;
+    }
+    if ((await tryQuery('ytmsearch', t.search)) || (await tryQuery('ytsearch', t.search))) return best.track;
     if (t.album === undefined) t.album = t.info.uri ? await spotify.albumOf(t.info.uri) : null;
     const album = albumQuery(t.album);
     if (album) {
@@ -671,8 +887,6 @@ class MusicManager {
     }
     return best?.track || null;
   }
-
-
 
   // The panel lives in the voice channel's built-in text chat, so the controls sit with the people listening.
   // Falls back to the channel /play was used in if I can't post in the voice chat.
@@ -694,7 +908,13 @@ class MusicManager {
         shardId: guild.shardId,
         deaf: true,
       });
-      const q = new GuildQueue(this, guild.id, player, this.panelChannel(guild, voiceChannelId, textChannel), voiceChannelId);
+      const q = new GuildQueue(
+        this,
+        guild.id,
+        player,
+        this.panelChannel(guild, voiceChannelId, textChannel),
+        voiceChannelId,
+      );
       q.fallbackChannel = textChannel;
       this.queues.set(guild.id, q);
       await player.setGlobalVolume(q.volume).catch(() => {});
@@ -725,4 +945,3 @@ class MusicManager {
 }
 
 module.exports = { MusicManager, GuildQueue, isStaff, matchScore, albumQuery, isSupportedLink };
-
