@@ -42,9 +42,11 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 
 | VPS | What to expect |
 |---|---|
-| 1 GB RAM, 1 core | Works in lean mode with swap; little headroom |
-| 2 GB RAM, 1–2 cores | Recommended minimum |
-| 4 GB RAM, 2+ cores | Comfortable |
+| 1 GB RAM, 1 core | Works, with swap. Fine for one server's music |
+| 2 GB RAM, 1–2 cores | Comfortable, room for other things on the VPS |
+| 4 GB RAM, 2+ cores | Plenty; more than the bot needs |
+
+Measured on a 3-core, 4 GB VPS while playing music (standard mode): the three containers used about **370 MB** together (bot 60 MB, music server 224 MB, YouTube helper 82 MB) and under 5% CPU. Their memory limits add up to about 1.5 GB in standard mode and 1.3 GB in lean mode, so they have room to grow during busy moments such as loading a big playlist.
 
 The installer picks lean mode (3 GB RAM or less) or standard mode by itself, and checks again on every run. To force it: `LEAN=yes bash install.sh` or `LEAN=no bash install.sh`.
 
