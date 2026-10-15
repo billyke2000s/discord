@@ -246,3 +246,4 @@ const setup = {
 };
 
 module.exports = { commands: [setup], components: { 'rebuild:confirm': rebuildConfirm, 'rebuild:modal': rebuildSubmit } };
+

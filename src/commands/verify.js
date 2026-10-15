@@ -57,6 +57,8 @@ async function enter(interaction) {
 
 async function submit(interaction) {
   const s = getSettings(interaction.guildId);
+  if (!s.verify.enabled || !s.verify.memberRole || antiRaid.isLocked(interaction.guildId))
+    return interaction.reply({ content: 'Verification is currently unavailable. Try again when verification is enabled and lockdown has ended.', flags: MessageFlags.Ephemeral });
   const result = captcha.check(interaction.guildId, interaction.user.id, interaction.fields.getTextInputValue('code'));
 
   if (result === 'wrong') return interaction.reply({ content: '❌ Wrong code, try again.', flags: MessageFlags.Ephemeral });

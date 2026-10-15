@@ -6,7 +6,8 @@ const { zipSync, strToU8 } = require('fflate');
 const {
   ChannelType, PermissionFlagsBits: P, AttachmentBuilder,
 } = require('discord.js');
-const { db, updateSettings } = require('./db');
+const { db, getSettings, updateSettings } = require('./db');
+const { ensureConfiguredOwnerRole } = require('./owner-role');
 const { embed, truncate, isBotAdmin } = require('./util');
 
 // ---- the new layout -------------------------------------------------------------
@@ -257,6 +258,8 @@ async function run(guild, owner) {
     });
 
     // 10. Panels
+    await ensureConfiguredOwnerRole(guild, getSettings(guild.id), patch => updateSettings(guild.id, patch))
+      .catch((e) => report.push(`⚠️ Couldn’t assign Owner display role: ${e.message}`));
     await progress('Posting panels…');
     const post = async (key, payload) => guild.channels.cache.get(c[key])?.send(payload).catch((e) => report.push(`⚠️ Couldn’t post in #${key}: ${e.message}`));
     await post('verify', require('../commands/verify').panel());
@@ -291,3 +294,4 @@ async function run(guild, owner) {
 }
 
 module.exports = { plan, run, LAYOUT, ROLES, isRunning: (id) => running.has(id) };
+

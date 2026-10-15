@@ -1,0 +1,11 @@
+[Unit]
+Description=Check and apply opted-in Discord bot releases
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/server-bot
+ExecStart=/usr/bin/python3 /root/server-bot/deployment/update.py --apply
+UMask=0077
+TimeoutStartSec=15min

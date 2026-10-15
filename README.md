@@ -97,6 +97,7 @@ The installer:
 3. **Asks for:**
    - the bot token, which it checks with Discord
    - your server ID; if the bot isn't in the server yet, it prints the invite link and waits
+   - the owner's user ID (prefilled from Discord and checked against the actual server owner)
    - your admin user ID(s)
    - whether to set up YouTube. If yes, it shows a code to enter at google.com/device with the throwaway account.
 
@@ -175,7 +176,7 @@ Roles        Admin · Staff · Member
 ### Admins
 | Command | What it does |
 |---|---|
-| `/diagnostics` | Checks everything is working |
+| `/diagnostics` or `/diagnosis` | Grouped health checks, resource samples, playback warnings and a small internet speed test; once every minute |
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
@@ -190,6 +191,12 @@ Roles        Admin · Staff · Member
 ---
 
 ## Music
+
+Music startup, playlist loading and buffering changes are explained in
+[the audit](docs/AUDIT.md). Public YouTube playlists can start one track while
+the remaining entries load; Spotify matches the next two tracks during playback.
+Unavailable page formats fall back to the normal loader. No audible playback
+improvement has been measured on the VPS yet.
 
 - `/play` takes a **song name**, a **YouTube** link or playlist, or a **Spotify** link, playlist or album.
 - Each song posts a **panel** in the voice channel's own chat, with a progress bar that updates itself:
@@ -226,6 +233,15 @@ Roles        Admin · Staff · Member
 
 ## Who can reset the server
 
+The installer asks for the owner's ID and defaults the bot-admin prompt to that same
+ID on a new installation. The bot automatically creates/reuses an **Owner** display
+role and assigns it to the actual server owner at startup and after a rebuild.
+There is no role command. It adds no permissions and does not transfer ownership;
+extra bot admins do not receive it. Older installations without `OWNER_ID` use
+Discord's actual owner ID. A configured mismatch is reported instead of assigning
+the label to a different account. The bot needs Manage Roles and sufficient role
+hierarchy to create/assign the label; move it in Roles to choose its display position.
+
 - **Only the server owner and the IDs in `BOT_ADMIN_IDS`** can run `/setup rebuild` or `/setup restyle`. Having Discord's Administrator permission isn't enough.
 - Members and Staff can't see `/setup` at all.
 - After it has been used once, `/setup rebuild` is **locked and removed from the command list**. The lock is saved twice, in the database and as a file in `locks/`, so wiping one copy doesn't unlock it.
@@ -242,6 +258,14 @@ Set it back to `no` afterwards.
 ---
 
 ## Looking after it
+
+For optional scheduled updates with backups, health checks and image rollback, see
+[automatic updates](docs/AUTO_UPDATES.md). They are disabled by default and require
+explicit setup on the VPS. The [full audit](docs/AUDIT.md) records confirmed findings,
+remaining risks and the measurements needed to investigate cutouts.
+
+The [diagnostic guide](docs/DIAGNOSTICS.md) explains the grouped report, load categories,
+small internet speed test, limits and one-minute cooldown.
 
 ```bash
 cd /root/server-bot
@@ -326,3 +350,4 @@ docker compose up -d bot
 ## Credits
 
 Built on [discord.js](https://discord.js.org), [Lavalink](https://github.com/lavalink-devs/Lavalink), [Shoukaku](https://github.com/shipgirlproject/Shoukaku), [youtube-source](https://github.com/lavalink-devs/youtube-source) (MIT, see `tools/README.md`), [spotify-url-info](https://github.com/microlinkhq/spotify-url-info) (MIT) and [yt-cipher](https://github.com/kikkia/yt-cipher). Scam lists: [nikolaischunk/discord-phishing-links](https://github.com/nikolaischunk/discord-phishing-links) and [Discord-AntiScam/scam-links](https://github.com/Discord-AntiScam/scam-links).
+

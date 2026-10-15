@@ -10,6 +10,10 @@ const antiRaid = require('./lib/antiraid');
 const backup = require('./lib/backup');
 const { embed, log } = require('./lib/util');
 const { syncGuild } = require('./lib/commandsync');
+const { startHealth } = require('./lib/health');
+const { hasCommandPermission } = require('./lib/permissions');
+const { ensureConfiguredOwnerRole } = require('./lib/owner-role');
+const { getSettings, updateSettings } = require('./lib/db');
 
 if (!process.env.DISCORD_TOKEN) {
   console.error('DISCORD_TOKEN is missing. Copy .env.example to .env and fill it in.');
@@ -43,6 +47,7 @@ const client = new Client({
 
 // Shoukaku must be created before login so it can catch the READY packet.
 client.music = new MusicManager(client);
+const stopHealth = startHealth(client);
 registerEvents(client);
 
 client.once(Events.ClientReady, async (c) => {
@@ -50,6 +55,8 @@ client.once(Events.ClientReady, async (c) => {
   // Register slash commands per server (and hide /setup rebuild where it's locked).
   for (const g of c.guilds.cache.values()) {
     if (process.env.GUILD_ID && g.id !== process.env.GUILD_ID) continue;
+    await ensureConfiguredOwnerRole(g, getSettings(g.id), patch => updateSettings(g.id, patch))
+      .catch((e) => console.error('[owner display role]', e.message));
     await syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
   }
   await voice.sweep(client).catch((e) => console.error('[sweep]', e));
@@ -69,6 +76,8 @@ client.once(Events.ClientReady, async (c) => {
 
 client.on(Events.GuildCreate, (g) => {
   if (process.env.GUILD_ID && g.id !== process.env.GUILD_ID) return;
+  ensureConfiguredOwnerRole(g, getSettings(g.id), patch => updateSettings(g.id, patch))
+    .catch((e) => console.error('[owner display role]', e.message));
   syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
 });
 
@@ -77,6 +86,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       const cmd = commands.get(interaction.commandName);
+      // Default slash permissions are configurable in Discord; enforce the
+      // command's required permissions again before performing privileged work.
+      if (!hasCommandPermission(cmd, interaction.memberPermissions))
+        return interaction.reply({ content: 'You do not have permission to use this command.', flags: MessageFlags.Ephemeral });
       if (cmd) await cmd.execute(interaction);
     } else if (interaction.isButton() || interaction.isModalSubmit()) {
       const handler = findComponent(interaction.customId);
@@ -93,6 +106,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e));
 
 async function shutdown() {
+  stopHealth();
   console.log('Shutting down...');
   for (const q of [...client.music.queues.values()]) await q.destroy();
   await client.destroy();
@@ -106,3 +120,4 @@ client.login(process.env.DISCORD_TOKEN).catch((e) => {
   console.error('Login failed:', e.message);
   process.exit(1);
 });
+
