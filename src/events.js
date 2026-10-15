@@ -7,6 +7,7 @@ const voice = require('./commands/voice');
 const verify = require('./commands/verify');
 const scamfilter = require('./lib/scamfilter');
 const levels = require('./commands/levels');
+const automod = require('./lib/automod');
 
 module.exports = function registerEvents(client) {
   // ---- member join: lockdown, account age flag, verification queue, welcome ----
@@ -76,6 +77,9 @@ module.exports = function registerEvents(client) {
       return;
 
     const s = getSettings(msg.guild.id);
+
+    // Automod rules next (all off until an admin turns them on).
+    if (await automod.check(msg, s.automod).catch((e) => console.error('[automod]', e.message))) return;
 
     if (s.selfPromo.channel === msg.channelId && s.selfPromo.minDays) {
       const m = msg.member;
@@ -162,7 +166,12 @@ module.exports = function registerEvents(client) {
   // Edited messages can have scam links added after the fact
   client.on(Events.MessageUpdate, async (_old, msg) => {
     if (msg.partial) msg = await msg.fetch().catch(() => null);
-    if (msg?.guild && !msg.author?.bot) await scamfilter.check(msg).catch(() => {});
+    if (!msg?.guild || msg.author?.bot) return;
+    if (await scamfilter.check(msg).catch(() => false)) return;
+    // Edited messages can sneak in a blocked word or link too (the spam rule ignores edits).
+    await automod
+      .check(msg, getSettings(msg.guild.id).automod, { edited: true })
+      .catch((e) => console.error('[automod]', e.message));
   });
 
   // temp VC or ticket channel deleted by hand: clean the DB

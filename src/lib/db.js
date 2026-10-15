@@ -100,6 +100,37 @@ const DEFAULTS = {
     stackRewards: true, // keep lower reward roles (false = only the highest)
     ignoredChannels: [], // no XP in these channels
   },
+  automod: {
+    // Every rule starts off. action: 'delete' | 'warn' (delete + warning) | 'timeout' (delete + timeout)
+    rules: {
+      words: { enabled: false, action: 'delete' },
+      invites: { enabled: false, action: 'delete' },
+      links: { enabled: false, action: 'delete' },
+      caps: { enabled: false, action: 'delete' },
+      mentions: { enabled: false, action: 'timeout' },
+      spam: { enabled: false, action: 'timeout' },
+    },
+    timeoutMinutes: 10,
+    words: [],
+    allowedLinks: [
+      'tenor.com',
+      'giphy.com',
+      'youtube.com',
+      'youtu.be',
+      'spotify.com',
+      'twitch.tv',
+      'discord.com',
+      'discordapp.com',
+      'discordapp.net',
+    ],
+    capsPercent: 70,
+    capsMinLetters: 10,
+    maxMentions: 5,
+    spamMessages: 5,
+    spamSeconds: 5,
+    exemptRoles: [],
+    exemptChannels: [],
+  },
 };
 
 function deepMerge(base, over) {
@@ -120,7 +151,8 @@ const setStmt = db.prepare(
 
 function getSettings(guildId) {
   const row = getStmt.get(guildId);
-  return deepMerge(DEFAULTS, row ? JSON.parse(row.data) : {});
+  // A fresh copy every time: callers may change what they get without changing the defaults for every server.
+  return deepMerge(structuredClone(DEFAULTS), row ? JSON.parse(row.data) : {});
 }
 
 // patch is merged into existing settings, e.g. updateSettings(id, { verify: { enabled: true } })

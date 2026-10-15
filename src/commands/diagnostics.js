@@ -250,6 +250,8 @@ const diagnostics = {
           `${st.size} scam domains, updated ${scamAgo || 'from the saved copy'}`,
         );
       }
+      const rulesOn = Object.entries(s.automod?.rules || {}).filter(([, r]) => r.enabled).length;
+      add(rulesOn ? 'ok' : 'off', 'Automod', rulesOn ? `${rulesOn} rule(s) on` : 'no rules on');
       if (antiRaid.isLocked(g.id)) add('warn', 'Lockdown', 'ON: new members are kicked when they join');
       else add('ok', 'Lockdown', 'off');
       add(
