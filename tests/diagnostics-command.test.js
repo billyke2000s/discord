@@ -25,7 +25,7 @@ test('complete report groups results, attaches full details and stays within Dis
   stub('../src/lib/util', { embed: () => new EmbedBuilder().setColor(0x5865f2), fmtDuration: () => '1:00' });
   stub('../src/lib/db', { db: { pragma: () => 'ok', exec: () => {}, prepare: () => ({ run: () => {} }) },
     getSettings: () => ({ verify: { enabled: false }, tickets: {}, jtc: {}, selfPromo: {}, suggestions: {}, scamFilter: { enabled: false } }) });
-  stub('../src/lib/backup', { latest: () => null }); stub('../src/lib/antiraid', { isLocked: () => false });
+  stub('../src/lib/backup', { latestScheduled: () => null }); stub('../src/lib/antiraid', { isLocked: () => false });
   stub('../src/lib/scamfilter', { stats: () => ({}) });
   delete require.cache[require.resolve('../src/commands/diagnostics')];
   const updated = require('../src/commands/diagnostics').commands[0];
@@ -39,9 +39,15 @@ test('complete report groups results, attaches full details and stays within Dis
       client: { ws: { ping: 20 }, music: { shoukaku: { getIdealNode: () => null }, get: () => null } },
       deferReply: async () => {}, editReply: async r => { if (typeof r === 'object') final = r; } });
     const data = final.embeds[0].toJSON();
-    assert.equal(data.fields.length, 6); assert.equal(final.files[0].name, 'bot-diagnostics.txt');
-    const total = data.title.length + data.description.length + data.footer.text.length + data.fields.reduce((n, f) => n + f.name.length + f.value.length, 0);
-    assert.ok(total < 6000); assert.ok(data.fields.every(f => f.value.length <= 1024));
-    assert.match(data.description, /Lavalink/); assert.doesNotMatch(data.title, /passed/);
+    assert.equal(final.files[0].name, 'bot-diagnostics.txt');
+    const total = data.title.length + data.description.length + data.footer.text.length;
+    assert.ok(total < 6000); assert.ok(data.description.length <= 4096);
+    assert.match(data.title, /problem/); assert.match(data.description, /\*\*Music server:\*\* not connected\n→ Check the music container/);
+    assert.match(data.description, /🖥️ \*\*Server\*\* · ✅ CPU 2% · 3\.0 GB memory free/);
+    assert.match(data.description, /🌐 \*\*Internet\*\* · ✅ fast · 100 Mbps down, 50 up/);
+    const text = final.files[0].attachment.toString();
+    assert.match(text, /FAIL\s+Music server: not connected/);
+    assert.doesNotMatch(text, /OK .*\n\s+Next step/);
+    assert.match(text, /Bot container memory: 100 MB of its 384 MB limit/);
   } finally { global.fetch = fetchBefore; spotify.load = loadBefore; }
 });

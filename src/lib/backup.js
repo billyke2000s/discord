@@ -57,12 +57,15 @@ function start() {
   setInterval(daily, 60 * 60 * 1000).unref(); // checks hourly, backs up once per day
 }
 
-function latest() {
-  const all = list();
-  return all.length ? all.sort((a, b) => a.day.localeCompare(b.day))[all.length - 1] : null;
+// Newest backup by date and time in its name. With tags, only those kinds count.
+function latest(...tags) {
+  const all = tags.length ? tags.flatMap((t) => list(t)) : list();
+  return all.sort((a, b) => a.file.localeCompare(b.file)).at(-1) || null;
 }
+// The bot's own daily/weekly backups. Installer and updater snapshots don't prove these still work.
+const latestScheduled = () => latest('daily', 'weekly');
 
-module.exports = { run, start, list, latest, DIR };
+module.exports = { run, start, list, latest, latestScheduled, DIR };
 
 // CLI: node src/lib/backup.js pre-update
 if (require.main === module) {

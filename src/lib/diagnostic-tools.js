@@ -54,7 +54,7 @@ async function sampleResources() {
   } finally { loop.disable(); }
 }
 
-const DOWN_BYTES = 2 * 1024 * 1024, UP_BYTES = 256 * 1024;
+const DOWN_BYTES = 2 * 1024 * 1024, UP_BYTES = 256 * 1024, LATENCY_SAMPLES = 5;
 async function consume(response, limit, expected = null) {
   if (!response.ok) { await response.body?.cancel(); throw new Error(`test endpoint returned HTTP ${response.status}`); }
   if (!response.body) throw new Error('test endpoint returned no body');
@@ -82,12 +82,14 @@ async function speedTest(fetcher = fetch, now = () => performance.now(), timeout
   try {
     await measure('Response time', async () => {
       const samples = [];
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < LATENCY_SAMPLES; i++) {
         const start = now(); await consume(await request('https://speed.cloudflare.com/__down?bytes=0'), 1024);
         samples.push(now() - start);
       }
-      result.latencyMs = samples.reduce((a, b) => a + b, 0) / samples.length;
-      result.variationMs = Math.max(...samples) - Math.min(...samples);
+      // Median, so one slow request does not decide the result; range shows how much it varied.
+      const sorted = [...samples].sort((a, b) => a - b);
+      result.latencyMs = sorted[Math.floor(sorted.length / 2)];
+      result.variationMs = sorted[sorted.length - 1] - sorted[0];
     });
     await measure('Download', async () => {
       const start = now();
@@ -109,37 +111,99 @@ async function speedTest(fetcher = fetch, now = () => performance.now(), timeout
 }
 
 const icons = { ok: '✅', warn: '⚠️', fail: '❌', unknown: '❔', off: '➖' };
+// Words used in the text file, so results can be searched and read outside Discord.
+const LABELS = { ok: 'OK', warn: 'WARN', fail: 'FAIL', unknown: 'UNMEASURED', off: 'INFO' };
 const ISSUE_NAMES = { 'position-stalled': 'song position stopped advancing', 'updates-stale': 'music server stopped sending player updates',
   'voice-disconnected': 'voice connection dropped', 'voice-ping-high': 'voice connection response was slow',
   'track-stuck': 'audio source stopped supplying frames', 'track-exception': 'audio source reported an error',
   'voice-closed': 'voice connection closed', 'play-request-failed': 'song could not start' };
 function describePlayback(monitor, now = Date.now()) {
-  if (monitor.paused) return { status: 'off', detail: 'paused; stall checks are suspended' };
-  if (!monitor.active) return { status: 'off', detail: 'waiting for playback to start; no live audio measurement' };
+  if (monitor.paused) return { status: 'off', detail: 'paused' };
+  if (!monitor.active) return { status: 'off', detail: 'waiting for a song to start' };
   const problems = [...monitor.alerts].map(x => ISSUE_NAMES[x] || 'playback warning');
   if (problems.length) return { status: 'warn', detail: problems.join('; ') };
-  if (!monitor.last) return { status: 'unknown', detail: 'waiting for the first player update' };
+  if (!monitor.last) return { status: 'unknown', detail: 'waiting for the first update from the music server' };
   const age = Math.max(0, Math.round((now - monitor.last.at) / 1000));
   const issue = [...monitor.recent].reverse().find(x => ISSUE_NAMES[x.event] && now - Date.parse(x.at) <= 300_000);
-  return { status: issue ? 'warn' : 'ok', detail: `no active stall signal; player update ${age}s ago${issue ? `; recently: ${ISSUE_NAMES[issue.event]}` : ''}. Sound is not measured.` };
+  return { status: issue ? 'warn' : 'ok', detail: `no stalls right now (last update ${age}s ago)${issue ? `; in the last 5 minutes: ${ISSUE_NAMES[issue.event]}` : ''}` };
 }
-const GROUPS = ['Server resources', 'Internet speed', 'Music & voice', 'Discord & permissions', 'Server features', 'Storage & protection'];
-function formatReport(results) {
-  const attention = results.filter(r => ['fail', 'warn', 'unknown'].includes(r.status)).sort((a, b) => ({ fail: 0, warn: 1, unknown: 2 }[a.status] - { fail: 0, warn: 1, unknown: 2 }[b.status]));
-  const actions = attention.slice(0, 4).map(r => `${icons[r.status]} **${r.name}** — ${r.action || r.detail}`);
-  return {
-    title: attention.length ? `Bot check — ${attention.length} thing${attention.length === 1 ? '' : 's'} to review` : 'Bot check — no issue found in these checks',
-    description: `${actions.length ? actions.join('\n') : 'Connections and sampled resources look available.'}\n\nThis is a snapshot. It does not confirm what listeners hear.`,
-    color: attention.some(r => r.status === 'fail') ? 'bad' : attention.length ? 'warn' : 'ok',
-    fields: GROUPS.map(group => {
-      const rows = results.filter(r => r.group === group);
-      // Keep every check visible. Short, bounded lines fit one Discord embed.
-      const lines = rows.map(r => `${icons[r.status]} **${r.name}:** ${r.detail}`);
-      const value = lines.join('\n');
-      return { name: group, value: value.length > 850 ? value.slice(0, 800) + '\n…full details in the attached report.' : value || 'No measurement available.' };
-    }),
-    fullText: GROUPS.map(group => `${group}\n${results.filter(r => r.group === group).map(r => `${r.status.toUpperCase()} ${r.name}: ${r.detail}${r.action ? `\n  Next step: ${r.action}` : ''}`).join('\n')}`).join('\n\n'),
-  };
-}
-module.exports = { DiagnosticGate, parseCpu, cpuDelta, parseMemory, sampleResources, speedTest, formatReport, describePlayback, DOWN_BYTES, UP_BYTES };
 
+// "11 min", "7 h 49 min", "2 days 3 h". Never the ambiguous "7:49".
+function fmtUptime(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d} day${d === 1 ? '' : 's'} ${h} h`;
+  if (h) return `${h} h ${m} min`;
+  return m ? `${m} min` : `${s} s`;
+}
+// How long ago, in words: "12 min ago", "3 h ago", "2 days ago".
+function fmtAgo(ms) {
+  const min = Math.max(0, Math.round(ms / 60_000));
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+// Discord mention syntax means nothing in a text file: turn it into names, IDs and UTC times.
+function plainMentions(text, names = {}) {
+  return String(text)
+    .replace(/<#(\d+)>/g, (_, id) => `#${names.channel?.(id) || 'unknown-channel'} (${id})`)
+    .replace(/<@&(\d+)>/g, (_, id) => `@${names.role?.(id) || 'unknown-role'} (${id})`)
+    .replace(/<t:(\d+)(?::[a-zA-Z])?>/g, (_, sec) => `${new Date(Number(sec) * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`);
+}
+
+const GROUPS = [
+  { name: 'Bot', icon: '🤖' }, { name: 'Music', icon: '🎵' }, { name: 'Internet', icon: '🌐' },
+  { name: 'Server', icon: '🖥️' }, { name: 'Data & protection', icon: '💾' }, { name: 'Setup', icon: '⚙️' },
+];
+const RANK = { fail: 0, warn: 1, unknown: 2, ok: 3, off: 4 };
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// Two layers: a short plain-English embed (verdict, one line per area, what to do) and a
+// complete text file with every number. Next steps appear only for things that need attention.
+function formatReport(results, { summaries = {}, names = {}, at = new Date() } = {}) {
+  const problems = results.filter(r => r.status === 'fail' || r.status === 'warn').sort((a, b) => RANK[a.status] - RANK[b.status]);
+  const unmeasured = results.filter(r => r.status === 'unknown');
+  const failed = problems.some(r => r.status === 'fail');
+  const title = failed ? `❌ ${plural(problems.length, 'problem')} found`
+    : problems.length ? `⚠️ ${plural(problems.length, 'thing')} to review` : '✅ Everything looks fine';
+
+  const lines = [];
+  for (const group of GROUPS) {
+    const rows = results.filter(r => r.group === group.name);
+    if (!rows.length) continue;
+    const bad = rows.filter(r => r.status === 'fail' || r.status === 'warn').sort((a, b) => RANK[a.status] - RANK[b.status]);
+    let text;
+    if (bad.length) text = `${icons[bad[0].status]} ${bad.map(r => r.name).join(', ')}`;
+    else if (rows.every(r => r.status === 'unknown' || r.status === 'off') && rows.some(r => r.status === 'unknown')) text = '❔ couldn\'t check';
+    else text = `✅ ${summaries[group.name] || 'fine'}`;
+    lines.push(`${group.icon} **${group.name}** · ${text}`);
+  }
+  let description = lines.join('\n');
+  if (problems.length) {
+    const shown = problems.slice(0, 5).map(r => `${icons[r.status]} **${r.name}:** ${r.detail}${r.action ? `\n→ ${r.action}` : ''}`);
+    if (problems.length > 5) shown.push(`…and ${problems.length - 5} more in the attached file.`);
+    description += `\n\n**What to do**\n${shown.join('\n')}`;
+  }
+  if (unmeasured.length) description += `\n\n❔ Couldn't measure: ${unmeasured.map(r => r.name).join(', ')}`;
+  if (description.length > 4000) description = `${description.slice(0, 3950)}\n…the rest is in the attached file.`;
+
+  const plain = (text) => plainMentions(text, names);
+  const row = (r) => `  ${LABELS[r.status].padEnd(10)} ${r.name}: ${plain(r.detail)}${r.action ? `\n             Next step: ${plain(r.action)}` : ''}`;
+  const fullText = [
+    `Bot check · ${at.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
+    `Result: ${title.replace(/^\S+\s/, '')}`,
+    '',
+    ...GROUPS.flatMap(group => {
+      const rows = results.filter(r => r.group === group.name).sort((a, b) => RANK[a.status] - RANK[b.status]);
+      return rows.length ? [group.name, ...rows.map(row), ''] : [];
+    }),
+    'Status words: OK passed · WARN needs review · FAIL failed · UNMEASURED could not be checked · INFO off or for information.',
+    'Not measured: what listeners actually hear, and packet loss on the Discord voice connection.',
+  ].join('\n');
+
+  return { title, description, color: failed ? 'bad' : problems.length ? 'warn' : 'ok', fullText };
+}
+module.exports = { DiagnosticGate, parseCpu, cpuDelta, parseMemory, sampleResources, speedTest, formatReport, describePlayback,
+  fmtUptime, fmtAgo, plainMentions, DOWN_BYTES, UP_BYTES, LATENCY_SAMPLES };

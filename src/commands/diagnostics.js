@@ -1,10 +1,11 @@
-// /diagnostics: checks every part of the bot and reports what passed and what failed.
-// Admins only, only the person who runs it sees the result, and it never shows tokens or passwords.
+// /diagnostics (alias /diagnosis): checks every part of the bot and reports in plain English.
+// Manage Server only, private reply, never shows tokens or passwords.
+// The embed is a short summary; the attached text file has every number for whoever is debugging.
 const fs = require('node:fs');
 const { SlashCommandBuilder, PermissionFlagsBits: P, MessageFlags, ChannelType, AttachmentBuilder } = require('discord.js');
-const { DiagnosticGate, sampleResources, speedTest, formatReport, describePlayback } = require('../lib/diagnostic-tools');
+const { DiagnosticGate, sampleResources, speedTest, formatReport, describePlayback, fmtUptime, fmtAgo, LATENCY_SAMPLES } = require('../lib/diagnostic-tools');
 const { db, getSettings } = require('../lib/db');
-const { embed, fmtDuration } = require('../lib/util');
+const { embed } = require('../lib/util');
 const scamfilter = require('../lib/scamfilter');
 const antiRaid = require('../lib/antiraid');
 const backup = require('../lib/backup');
@@ -20,211 +21,270 @@ const NEEDED = {
   Connect: 'Connect', Speak: 'Speak', MoveMembers: 'Move Members',
 };
 
+// What to do when a check needs attention. Shown only for warnings, failures and missing readings.
+const NEXT = {
+  'Discord connection': 'Discord is slow to answer. If commands lag, run this again while it is happening.',
+  'Bot permissions': 'Give my role the missing permissions in Server Settings → Roles.',
+  'Role order': 'Drag my role higher in Server Settings → Roles.',
+  'Backups': 'Check the backups folder on the VPS has free space, then look for [backup] errors in the bot log.',
+  'Database': 'Look at the bot log on the VPS. If the database is damaged, restore a backup (README → Backups).',
+  'Music server': 'Check the music container on the VPS: docker compose logs --tail 80 lavalink',
+  'Music server CPU': 'The music server is very busy. Check what else is running on the VPS.',
+  'Music server memory': 'The music server is close to its memory limit. Restart it if music stutters: docker compose restart lavalink',
+  'Audio smoothness': 'Audio is arriving late. Check VPS CPU and the music log while it is happening.',
+  'Playback': 'Save this report and the music-health log before restarting anything (README → Diagnostics).',
+  'YouTube search': 'Check the music and cipher logs on the VPS. The YouTube login may need renewing (README → Troubleshooting).',
+  'Spotify links': 'Spotify may have changed its page. Try another public link; if they all fail, the bot needs an update.',
+  'YouTube helper': 'Check the cipher container on the VPS: docker compose logs --tail 80 yt-cipher',
+  'Scam filter': 'The VPS could not download the scam lists. Mass-ping and cross-channel spam checks still work.',
+  'Lockdown': 'New members are being kicked. Turn it off with /lockdown off when the raid is over.',
+  'Disk space': 'Free up space on the VPS. Keep a copy of the backups folder before deleting anything.',
+  'CPU': 'The VPS is very busy. Check what else is running on it (top).',
+  'CPU waiting': 'The VPS keeps waiting for its disk or host. If this keeps happening, contact your VPS provider.',
+  'Load': 'More work is waiting than the VPS has cores. Check what else is running on it (top).',
+  'Memory': 'The VPS is low on memory. Check other services on it, or add RAM or swap.',
+  'Bot container memory': 'The bot is near its memory limit. Restart it with docker compose restart bot, and report it if it keeps happening.',
+  'Bot responsiveness': 'The bot was briefly busy. Run this again during slow commands to compare.',
+  'Download': 'One slow or failed sample is normal. Run this again in a minute.',
+  'Upload': 'One slow or failed sample is normal. Run this again in a minute.',
+  'Response time': 'One slow or failed sample is normal. Run this again in a minute.',
+};
+const FALLBACK = 'Run this again in a minute. If it keeps failing, check the bot log on the VPS: docker compose logs --tail 80 bot';
+
 const gate = new DiagnosticGate();
 const withTimeout = async (p, ms = 8000) => {
   let timer;
   try { return await Promise.race([p, new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('timed out')), ms); })]); }
   finally { clearTimeout(timer); }
 };
-const NEXT = {
-  'Discord connection': 'If commands feel slow, compare this response time during the problem.',
-  'Bot permissions': 'Give the missing permissions to the bot role in Server Settings → Roles.',
-  'Role order': 'Move the bot role above the roles it needs to manage.',
-  'Backups': 'Check the backups folder is writable and has space; make a manual backup before updating.',
-  'Database': 'Check private bot logs. Restore a known-good backup if the database check fails.',
-  'Lavalink (music server)': 'Check the music container and its logs on the VPS.',
-  'Audio smoothness': 'Keep music playing for a minute and rerun; missing counters cannot confirm smooth audio.',
-  'Playback observations': 'If a cutout is happening, save the attached report and music-health logs before restarting.',
-  'YouTube search': 'Check the YouTube plugin and cipher helper logs; a search test does not test audio streaming.',
-  'Spotify links': 'Try a public Spotify link; private or changed embed pages may be unavailable.',
-  'YouTube cipher helper': 'Check the yt-cipher container on the VPS.',
-  'Scam filter': 'Check outbound access to the scam lists. Existing cached protection may still be available.',
-};
 const gb = (bytes) => `${(bytes / 1e9).toFixed(1)} GB`;
 const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
+const pct = (x) => `${Math.round(x)}%`;
 
 const diagnostics = {
-  data: new SlashCommandBuilder().setName('diagnostics').setDescription('Check every part of the bot is working (admins only)')
+  data: new SlashCommandBuilder().setName('diagnostics').setDescription('Check every part of the bot is working (Manage Server only)')
     .setDefaultMemberPermissions(P.ManageGuild),
   async execute(interaction) {
     const lease = gate.acquire();
     if (!lease.ok) return interaction.reply({ content: lease.message, flags: MessageFlags.Ephemeral });
     try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await interaction.editReply('Checking the bot, server and music connections. A small internet speed test is included; please give me a moment.');
+    await interaction.editReply('Checking the bot, music, server and internet. This takes about 15 seconds.');
     const g = interaction.guild, me = g.members.me, s = getSettings(g.id), client = interaction.client;
     const results = [];
-    let group = 'Discord & permissions';
-    const add = (status, name, detail = '', action = NEXT[name]) => results.push({ status, name, detail, action, group });
+    const summaries = {};
+    let group = 'Bot';
+    const add = (status, name, detail = '', action = NEXT[name]) => results.push({
+      status, name, detail, group,
+      action: ['warn', 'fail', 'unknown'].includes(status) ? action || FALLBACK : undefined,
+    });
     const check = async (name, fn) => {
-      try { await fn(); } catch { add('unknown', name, 'check could not complete', NEXT[name] || 'Check the related container logs on the VPS.'); }
+      try { await fn(); } catch { add('unknown', name, 'the check could not finish'); }
     };
 
-    // --- Discord ---
-    add(client.ws.ping >= 0 && client.ws.ping < 1000 ? 'ok' : 'warn', 'Discord connection', `${client.ws.ping} ms`);
+    // --- Bot ---
+    const ping = client.ws.ping;
+    add(ping >= 0 && ping < 1000 ? 'ok' : 'warn', 'Discord connection', `${ping} ms`);
     await check('Bot permissions', () => {
-      if (me.permissions.has(P.Administrator)) return add('ok', 'Bot permissions', 'has Administrator (you can take it away once setup is done)');
+      if (me.permissions.has(P.Administrator)) {
+        if (!rebuildLocked(g.id)) return add('off', 'Bot permissions', 'has Administrator (needed for /setup rebuild; remove it afterwards)');
+        add('warn', 'Bot permissions', 'has Administrator, which is more than it needs',
+          'Setup is done: give my role the permissions listed in the attached file, then remove Administrator.');
+        return add('off', 'Permissions to give instead', Object.values(NEEDED).join(', '));
+      }
       const missing = Object.entries(NEEDED).filter(([k]) => !me.permissions.has(P[k])).map(([, v]) => v);
-      add(missing.length ? 'fail' : 'ok', 'Bot permissions', missing.length ? `missing: ${missing.join(', ')}` : 'all present');
+      add(missing.length ? 'fail' : 'ok', 'Bot permissions', missing.length ? `missing: ${missing.join(', ')}` : 'has everything it needs');
     });
     await check('Role order', () => {
       const top = me.roles.highest;
       const cant = g.roles.cache.filter((r) => r.id !== g.id && !r.managed && r.comparePositionTo(top) >= 0);
       const important = [s.verify.memberRole, s.tickets.staffRole].filter(Boolean).filter((id) => cant.has(id));
-      if (important.length) return add('fail', 'Role order', `my role is below ${important.map((id) => `<@&${id}>`).join(', ')}: I can't give those out. Drag my role above them.`);
-      add(cant.size ? 'warn' : 'ok', 'Role order', cant.size ? `I can't manage or moderate people with: ${[...cant.values()].slice(0, 8).map((r) => r.toString()).join(', ')}${cant.size > 8 ? '…' : ''}` : 'my role is above every other role');
+      if (important.length) return add('fail', 'Role order', `my role is below ${important.map((id) => `<@&${id}>`).join(', ')}, so I can't give those out`);
+      add(cant.size ? 'warn' : 'ok', 'Role order', cant.size ? `I can't manage people with: ${[...cant.values()].slice(0, 8).map((r) => r.toString()).join(', ')}${cant.size > 8 ? '…' : ''}` : 'my role is at the top');
     });
+    const uptime = fmtUptime(process.uptime());
+    add('ok', 'Uptime', `running for ${uptime}`);
 
-    // --- configured channels/roles still exist and are usable ---
-    group = 'Server features';
+    // --- Setup: configured channels/roles still exist and are usable ---
+    group = 'Setup';
     const chan = (id, label, needSend = true) => {
-      if (!id) return add('off', label, 'not configured');
+      if (!id) return add('off', label, 'not set up');
       const ch = g.channels.cache.get(id);
-      if (!ch) return add('fail', label, 'the channel was deleted: set it up again with /setup');
+      if (!ch) return add('fail', label, 'the channel was deleted', 'Set it up again with /setup.');
       if (needSend && ch.type !== ChannelType.GuildCategory && ch.type !== ChannelType.GuildVoice && !ch.permissionsFor(me).has([P.ViewChannel, P.SendMessages, P.EmbedLinks]))
-        return add('fail', label, `${ch}: I can't post there`);
+        return add('fail', label, `I can't post in ${ch}`, `Let my role view, send messages and embed links in ${ch}.`);
       add('ok', label, `${ch}`);
     };
     const role = (id, label) => {
-      if (!id) return add('off', label, 'not configured');
-      add(g.roles.cache.has(id) ? 'ok' : 'fail', label, g.roles.cache.has(id) ? `<@&${id}>` : 'the role was deleted: set it up again with /setup');
+      if (!id) return add('off', label, 'not set up');
+      if (g.roles.cache.has(id)) add('ok', label, `<@&${id}>`);
+      else add('fail', label, 'the role was deleted', 'Set it up again with /setup.');
     };
     chan(s.logChannel, 'Log channel');
     chan(s.welcomeChannel, 'Welcome channel');
-    if (s.verify.enabled) role(s.verify.memberRole, 'Verification Member role'); else add('off', 'Verification', 'turned off');
+    if (s.verify.enabled) role(s.verify.memberRole, 'Verified member role'); else add('off', 'Verification', 'turned off');
     role(s.tickets.staffRole, 'Ticket staff role');
     if (s.tickets.categoryId) chan(s.tickets.categoryId, 'Ticket category', false);
     chan(s.jtc.lobbyChannel, 'Join-to-create lobby', false);
     if (s.selfPromo.channel) chan(s.selfPromo.channel, 'Self-promo channel', false);
     if (s.suggestions.channel) chan(s.suggestions.channel, 'Suggestions channel', false);
+    const setupOk = results.filter((r) => r.group === 'Setup' && r.status === 'ok').length;
+    summaries.Setup = `${setupOk} channels and roles in place`;
 
-    // --- database + backups ---
-    group = 'Storage & protection';
+    // --- Data & protection ---
+    group = 'Data & protection';
     await check('Database', () => {
       const r = db.pragma('quick_check', { simple: true });
       db.exec('CREATE TABLE IF NOT EXISTS _diag (x INTEGER)'); db.prepare('INSERT INTO _diag VALUES (1)').run(); db.exec('DROP TABLE _diag');
-      add(r === 'ok' ? 'ok' : 'fail', 'Database', r === 'ok' ? 'healthy, read/write OK' : r);
+      add(r === 'ok' ? 'ok' : 'fail', 'Database', r === 'ok' ? 'healthy, can read and write' : r);
     });
+    let backupAgo = null;
     await check('Backups', () => {
-      const last = backup.latest();
-      if (!last) return add('warn', 'Backups', 'no backup yet (the first one is made within an hour of starting)');
+      const last = backup.latestScheduled();
+      if (!last) return add('warn', 'Backups', 'no daily backup yet (the first is made within an hour of starting)');
       const age = Date.now() - fs.statSync(`${backup.DIR}/${last.file}`).mtimeMs;
-      add(age < 26 * 3600e3 ? 'ok' : 'fail', 'Backups', `latest ${last.file} (${Math.round(age / 3600e3)}h ago)`);
+      backupAgo = fmtAgo(age);
+      add(age < 26 * 3600e3 ? 'ok' : 'fail', 'Backups', `last daily backup ${backupAgo} (${last.file})`);
     });
-    add('ok', 'Server rebuild', rebuildLocked(g.id) ? 'locked (can’t be run again)' : 'not used yet (owner can run /setup rebuild once)');
-
-    // --- music ---
-    group = 'Music & voice';
-    const node = client.music.shoukaku.getIdealNode();
-    if (!node) add('fail', 'Lavalink (music server)', 'not connected: check `docker compose logs lavalink`');
+    const st = scamfilter.stats();
+    let scamAgo = null;
+    if (!s.scamFilter.enabled) add('off', 'Scam filter', 'turned off');
+    else if (!st.size) add('fail', 'Scam filter', 'no scam list loaded');
     else {
-      await check('Lavalink (music server)', async () => {
+      scamAgo = st.lastLoaded ? fmtAgo(Date.now() - st.lastLoaded) : null;
+      add(st.lastLoaded && Date.now() - st.lastLoaded < 13 * 3600e3 ? 'ok' : 'warn', 'Scam filter', `${st.size} scam domains, updated ${scamAgo || 'from the saved copy'}`);
+    }
+    if (antiRaid.isLocked(g.id)) add('warn', 'Lockdown', 'ON: new members are kicked when they join');
+    else add('ok', 'Lockdown', 'off');
+    add('off', 'Server rebuild', rebuildLocked(g.id) ? 'used and locked' : 'not used yet (owner can run /setup rebuild once)');
+    summaries['Data & protection'] = ['database OK', backupAgo && `backed up ${backupAgo}`, scamAgo && `scam list updated ${scamAgo}`].filter(Boolean).join(' · ');
+
+    // --- Music ---
+    group = 'Music';
+    let smooth = null;
+    const q = client.music.get(g.id);
+    const node = client.music.shoukaku.getIdealNode();
+    if (!node) add('fail', 'Music server', 'not connected');
+    else {
+      await check('Music server', async () => {
         const info = await withTimeout(node.rest.getLavalinkInfo());
         const plugins = (info?.plugins || []).map((p) => `${p.name} ${p.version}`);
-        add('ok', 'Lavalink (music server)', `v${info?.version?.semver || '?'} · ${node.stats?.players ?? 0} player(s)`);
-        const st = node.stats;
-        if (st?.cpu) {
-          const pct = (x) => `${Math.round((x || 0) * 100)}%`;
-          add(st.cpu.lavalinkLoad >= .85 ? 'warn' : 'ok', 'Music CPU', `${pct(st.cpu.lavalinkLoad)} (latest Lavalink sample)`, 'Compare CPU and playback observations during a cutout.');
-          if (st.memory?.used && st.memory?.allocated) add('ok', 'Music Java memory', `${mb(st.memory.used)} used / ${mb(st.memory.allocated)} allocated heap; not container RAM`);
-          else add('unknown', 'Music Java memory', 'heap measurements unavailable');
-        }
-        // Lavalink sends 50 audio frames a second = 3000 a minute per player. Missing/late frames = stutter.
-        if (st?.frameStats) {
-          const lost = (st.frameStats.nulled || 0) + Math.max(0, st.frameStats.deficit || 0);
-          const lostPct = (lost / (3000 * Math.max(1, st.playingPlayers || 1))) * 100;
-          add(lostPct < 1 ? 'ok' : lostPct < 5 ? 'warn' : 'fail', 'Audio smoothness (last minute)',
-            `${lostPct.toFixed(1)}% of audio frames missing or late${lostPct < 1 ? ' (low loss)' : ' (check CPU, GC pauses, network and source failures; cause is not determined)'}`);
+        add('ok', 'Music server', `connected · Lavalink v${info?.version?.semver || '?'} · ${node.stats?.players ?? 0} player(s)`);
+        const stats = node.stats;
+        if (stats?.cpu) add(stats.cpu.lavalinkLoad >= 0.85 ? 'warn' : 'ok', 'Music server CPU', pct((stats.cpu.lavalinkLoad || 0) * 100));
+        const mem = stats?.memory;
+        if (mem?.used && (mem.reservable || mem.allocated)) {
+          const max = mem.reservable || mem.allocated;
+          add(mem.used / max >= 0.85 ? 'warn' : 'ok', 'Music server memory', `${mb(mem.used)} of ${mb(max)} ${mem.reservable ? 'max' : 'allocated'}`);
+        } else add('unknown', 'Music server memory', 'not reported');
+        // Lavalink sends 50 audio frames a second = 3000 a minute per playing player. Missing/late frames = stutter.
+        if (stats?.frameStats) {
+          const lost = (stats.frameStats.nulled || 0) + Math.max(0, stats.frameStats.deficit || 0);
+          const lostPct = (lost / (3000 * Math.max(1, stats.playingPlayers || 1))) * 100;
+          smooth = lostPct < 1;
+          add(lostPct < 1 ? 'ok' : lostPct < 5 ? 'warn' : 'fail', 'Audio smoothness',
+            `${lostPct.toFixed(1)}% of audio missing or late in the last minute${lostPct < 1 ? '' : ' (the cause isn\'t known from this alone)'}`);
         } else {
-          add('unknown', 'Audio smoothness', 'no frame counters received; audible quality cannot be assessed');
+          if (q?.current) add('unknown', 'Audio smoothness', 'the music server sent no audio counters', 'Keep music playing for a minute, then run this again.');
+          else add('off', 'Audio smoothness', 'nothing playing, so nothing to measure');
         }
-        const has = (n) => plugins.some((p) => p.toLowerCase().includes(n));
-        add(has('youtube') ? 'ok' : 'fail', 'YouTube plugin', has('youtube') ? plugins.find((p) => p.toLowerCase().includes('youtube')) : 'not loaded');
+        const yt = plugins.find((p) => p.toLowerCase().includes('youtube'));
+        add(yt ? 'ok' : 'fail', 'YouTube plugin', yt || 'not loaded', 'Run the latest installer on the VPS to reinstall the YouTube plugin.');
       });
       await check('YouTube search', async () => {
         const res = await withTimeout(node.rest.resolve('ytsearch:lofi hip hop'), 15000);
         const n = res?.loadType === 'search' ? res.data.length : 0;
-        add(n ? 'ok' : 'fail', 'YouTube search', n ? `song lookup works (${n} results)` : `no results (${res?.loadType || 'no reply'})`);
+        add(n ? 'ok' : 'fail', 'YouTube search', n ? `works (${n} results)` : `no results (${res?.loadType || 'no reply'})`);
       });
     }
-    await check('YouTube cipher helper', async () => {
+    await check('YouTube helper', async () => {
       // Any HTTP answer means the yt-cipher container is up (it may say 401/404 without the password; that's fine).
       const response = await withTimeout(fetch('http://yt-cipher:8001/', { signal: AbortSignal.timeout(5000) }), 6000);
       await response.body?.cancel();
-      add(response.status >= 500 ? 'warn' : 'ok', 'YouTube cipher helper', `reachable (HTTP ${response.status}); stream decoding not tested`);
+      add(response.status >= 500 ? 'warn' : 'ok', 'YouTube helper', `reachable (HTTP ${response.status})`);
     });
     await check('Spotify links', async () => {
       // A long-standing public song. Checks Spotify's embed page can still be read (no account/helper involved).
       const sp = await withTimeout(require('../lib/spotify').load('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'), 15000);
-      add(sp.tracks.length ? 'ok' : 'fail', 'Spotify links', sp.tracks.length ? `reading Spotify works (test song: ${sp.tracks[0].title})` : 'no songs read');
+      add(sp.tracks.length ? 'ok' : 'fail', 'Spotify links', sp.tracks.length ? 'can read Spotify links' : 'no songs read');
     });
-    const q = client.music.get(g.id);
     if (q?.monitor) {
       q.monitor.check(node?.stats);
       const playback = describePlayback(q.monitor);
-      add(playback.status, 'Playback observations', playback.detail);
+      add(playback.status, 'Playback', playback.detail);
     }
-    add('ok', 'Music right now', q?.current ? `playing in <#${q.voiceChannelId}> · ${q.tracks.length} queued` : 'idle');
+    if (q?.current) {
+      add('ok', 'Now playing', `in <#${q.voiceChannelId}> · ${q.tracks.length} queued`);
+      summaries.Music = [`playing in <#${q.voiceChannelId}>`, smooth === true && 'no stutters', `${q.tracks.length} queued`].filter(Boolean).join(' · ');
+    } else {
+      add('off', 'Now playing', 'nothing');
+      summaries.Music = 'ready · nothing playing';
+    }
 
-    // --- protection ---
-    group = 'Storage & protection';
-    const st = scamfilter.stats();
-    if (!s.scamFilter.enabled) add('off', 'Scam filter', 'turned off');
-    else if (!st.size) add('fail', 'Scam filter', 'no scam list loaded (the @everyone and cross-channel checks still work)');
-    else add(Date.now() - st.lastLoaded < 13 * 3600e3 ? 'ok' : 'warn', 'Scam filter', `${st.size} domains, updated ${st.lastLoaded ? `<t:${Math.floor(st.lastLoaded / 1000)}:R>` : 'from cache'}`);
-    add('ok', 'Lockdown', antiRaid.isLocked(g.id) ? '🔒 ON' : 'off');
-
-    // --- VPS ---
-    group = 'Server resources';
+    // --- Server (the VPS) ---
+    group = 'Server';
+    let cpuBusy = null, memFree = null, diskFree = null;
     await check('Disk space', () => {
       const f = fs.statfsSync(process.env.DATA_DIR || '/');
-      const freeGb = (f.bavail * f.bsize) / 1e9;
-      const totalGb = (f.blocks * f.bsize) / 1e9;
-      add(freeGb > 2 ? 'ok' : freeGb > 0.5 ? 'warn' : 'fail', 'Data disk', `${freeGb.toFixed(1)} / ${totalGb.toFixed(1)} GB free`, 'Free space on the data disk; keep backups before deleting anything.');
+      const free = f.bavail * f.bsize, total = f.blocks * f.bsize;
+      diskFree = gb(free);
+      add(free > 2e9 ? 'ok' : free > 0.5e9 ? 'warn' : 'fail', 'Disk space', `${gb(free)} free of ${gb(total)}`);
     });
-    await check('Server resource sample', async () => {
+    await check('CPU', async () => {
       const r = await sampleResources();
-      const threshold = (value) => value >= 95 ? 'fail' : value >= 85 ? 'warn' : 'ok';
+      const level = (value) => value >= 95 ? 'fail' : value >= 85 ? 'warn' : 'ok';
       if (r.cpu) {
-        add(threshold(r.cpu.busy), 'VPS CPU', `${r.cpu.busy.toFixed(1)}% busy across ${r.hostCores} visible cores (1-second sample)`, 'Check whether other VPS workloads spike at the same time as cutouts.');
-        add(r.cpu.steal >= 10 || r.cpu.ioWait >= 10 ? 'warn' : 'ok', 'CPU waiting', `${r.cpu.ioWait.toFixed(1)}% disk wait · ${r.cpu.steal.toFixed(1)}% hypervisor wait`, 'Compare these waits during the problem; they do not identify its cause by themselves.');
-      } else add('unknown', 'VPS CPU', 'host counters unavailable');
-      add(r.load > r.hostCores ? 'warn' : 'ok', 'Load average', `${r.load.toFixed(2)} tasks over 1 minute / ${r.hostCores} visible cores`, 'Check competing tasks if the average remains above the available core count.');
+        cpuBusy = r.cpu.busy;
+        add(level(r.cpu.busy), 'CPU', `${pct(r.cpu.busy)} busy across ${r.hostCores} cores (1-second sample)`);
+        add(r.cpu.steal >= 10 || r.cpu.ioWait >= 10 ? 'warn' : 'ok', 'CPU waiting', `${pct(r.cpu.ioWait)} waiting for disk · ${pct(r.cpu.steal)} waiting for the host`);
+      } else add('unknown', 'CPU', 'not readable');
+      add(r.load > r.hostCores ? 'warn' : 'ok', 'Load', `${r.load.toFixed(2)} over the last minute (${r.hostCores} cores)`);
       if (r.memory) {
-        const used = 100 * (1 - r.memory.available / r.memory.total);
-        add(threshold(used), 'VPS memory', `${gb(r.memory.available)} available / ${gb(r.memory.total)} total`, 'Check other services and the host memory usage during a cutout.');
-        add('ok', 'Swap', r.memory.swapTotal ? `${mb(r.memory.swapUsed || 0)} used / ${mb(r.memory.swapTotal)} total` : 'not configured');
-      } else add('unknown', 'VPS memory & swap', 'host counters unavailable');
-      add(r.botCpu >= 85 ? 'warn' : 'ok', 'Bot CPU & memory', `${r.botCpu.toFixed(1)}% of one core · ${mb(r.botRss)} process RAM${r.cpuLimit ? ` · CPU quota ${r.cpuLimit.toFixed(2)} cores` : ''}`, 'Compare bot CPU and timer delay during slow commands.');
-      if (r.containerLimit && r.containerMemory !== null) add(threshold(r.containerMemory / r.containerLimit * 100), 'Bot container RAM', `${mb(r.containerMemory)} / ${mb(r.containerLimit)} limit`, 'Review the container limit if usage regularly approaches it.');
-      else add('unknown', 'Bot container RAM', 'limit unavailable or unlimited; process RAM shown above');
-      add(r.loopMaxMs === null ? 'unknown' : r.loopMaxMs >= 200 ? 'warn' : 'ok', 'Bot responsiveness', r.loopMaxMs === null ? 'no event-loop sample' : `longest timer delay ${r.loopMaxMs.toFixed(0)} ms (short sample)`, 'Save this report during slow commands; CPU-intensive bot work may delay responses.');
+        memFree = gb(r.memory.available);
+        add(level(100 * (1 - r.memory.available / r.memory.total)), 'Memory', `${gb(r.memory.available)} free of ${gb(r.memory.total)}`);
+        add('ok', 'Swap', r.memory.swapTotal ? `${mb(r.memory.swapUsed || 0)} used of ${mb(r.memory.swapTotal)}` : 'not set up');
+      } else add('unknown', 'Memory', 'not readable');
+      add(r.botCpu >= 85 ? 'warn' : 'ok', 'Bot CPU', `${pct(r.botCpu)} of one core${r.cpuLimit ? ` (limit ${r.cpuLimit.toFixed(2)} cores)` : ''}`);
+      // The two memory figures are counted differently: the process figure includes shared program files,
+      // the container figure only what is charged to the container. The limit applies to the container figure.
+      add('ok', 'Bot memory', `${mb(r.botRss)} used by the bot process (includes shared program files)`);
+      if (r.containerLimit && r.containerMemory !== null) add(level(r.containerMemory / r.containerLimit * 100), 'Bot container memory', `${mb(r.containerMemory)} of its ${mb(r.containerLimit)} limit`);
+      else add('off', 'Bot container memory', 'no limit set');
+      add(r.loopMaxMs === null ? 'unknown' : r.loopMaxMs >= 200 ? 'warn' : 'ok', 'Bot responsiveness', r.loopMaxMs === null ? 'no sample' : `slowest reaction ${Math.round(r.loopMaxMs)} ms`);
     });
-    add('off', 'Other containers', 'cipher CPU/RAM and music container RAM are not exposed; Java heap is shown separately');
-    const uptime = process.uptime();
-    add('ok', 'Bot uptime', `${Math.floor(uptime / 86400)} days ${fmtDuration((uptime % 86400) * 1000)}`);
+    summaries.Server = [cpuBusy !== null && `CPU ${pct(cpuBusy)}`, memFree && `${memFree} memory free`, diskFree && `${diskFree} disk free`].filter(Boolean).join(' · ') || 'fine';
+    summaries.Bot = `online · up ${uptime} · Discord ${ping} ms`;
 
-    group = 'Internet speed';
+    // --- Internet ---
+    group = 'Internet';
     await check('Speed test', async () => {
       const speed = await speedTest();
-      const rate = (value) => value === null ? 'unavailable' : `${value.toFixed(1)} Mbps sampled`;
-      add(speed.downloadMbps === null ? 'unknown' : speed.downloadMbps < 2 ? 'warn' : 'ok', 'Download', rate(speed.downloadMbps), 'Small HTTPS sample to Cloudflare; compare repeated reports, not your advertised line speed.');
-      add(speed.uploadMbps === null ? 'unknown' : speed.uploadMbps < 2 ? 'warn' : 'ok', 'Upload', rate(speed.uploadMbps), 'Small generated-data sample to Cloudflare; this is not a Discord voice-path test.');
-      add(speed.latencyMs === null ? 'unknown' : speed.latencyMs >= 500 ? 'warn' : 'ok', 'HTTP response time', speed.latencyMs === null ? 'unavailable' : `${speed.latencyMs.toFixed(0)} ms average · ${speed.variationMs.toFixed(0)} ms variation (3 requests)`, 'This includes HTTPS/server overhead. It does not measure UDP packet loss.');
-      add(speed.errors.length ? 'unknown' : 'off', 'Test scope', `${speed.errors.join('; ') || '2 MiB download + 256 KiB upload; 12-second limit'}. No packet-loss measurement.`, speed.errors.length ? 'Endpoint failure does not establish a server fault; try again after the cooldown.' : undefined);
+      const rate = (value) => value === null ? 'unavailable' : `${value.toFixed(1)} Mbps`;
+      add(speed.downloadMbps === null ? 'unknown' : speed.downloadMbps < 2 ? 'warn' : 'ok', 'Download', rate(speed.downloadMbps));
+      add(speed.uploadMbps === null ? 'unknown' : speed.uploadMbps < 2 ? 'warn' : 'ok', 'Upload', rate(speed.uploadMbps));
+      add(speed.latencyMs === null ? 'unknown' : speed.latencyMs >= 500 ? 'warn' : 'ok', 'Response time', speed.latencyMs === null ? 'unavailable'
+        : `${Math.round(speed.latencyMs)} ms typical (range ${Math.round(speed.variationMs)} ms over ${LATENCY_SAMPLES} requests)`);
+      if (speed.downloadMbps !== null && speed.uploadMbps !== null) {
+        const fast = speed.downloadMbps >= 20 && speed.uploadMbps >= 5;
+        summaries.Internet = `${fast ? 'fast' : 'working'} · ${Math.round(speed.downloadMbps)} Mbps down, ${Math.round(speed.uploadMbps)} up`;
+      }
     });
 
     // --- report ---
-    const report = formatReport(results);
+    const report = formatReport(results, {
+      summaries,
+      names: { channel: (id) => g.channels.cache.get(id)?.name, role: (id) => g.roles.cache.get(id)?.name },
+    });
+    const file = `${report.fullText}\n\nSpeed test: ${LATENCY_SAMPLES} response-time requests, a 2 MiB download and a 256 KiB upload to Cloudflare, 12-second limit.`;
     await interaction.editReply({
-      embeds: [embed(report.color).setTitle(report.title).setDescription(report.description.slice(0, 700)).addFields(report.fields)
-        .setFooter({ text: '✅ checked · ⚠️ review · ❌ failed · ❔ unmeasured · ➖ off/info. Shared cooldown: 1 minute.' })],
-      files: [new AttachmentBuilder(Buffer.from(`Bot diagnostic snapshot\n${new Date().toISOString()}\n\n${report.fullText}\n\nAudible quality and packet loss are not measured.`, 'utf8'), { name: 'bot-diagnostics.txt' })],
+      content: '',
+      embeds: [embed(report.color).setTitle(report.title).setDescription(report.description)
+        .setFooter({ text: 'Every number is in the attached file. I can\'t hear the audio: if music cuts out, run this while it\'s happening.' })],
+      files: [new AttachmentBuilder(Buffer.from(file, 'utf8'), { name: 'bot-diagnostics.txt' })],
     });
     } finally { lease.release(); }
   },
 };
 
-const diagnosis = { ...diagnostics, data: new SlashCommandBuilder().setName('diagnosis').setDescription('Check the bot, music, server load and internet speed (admins only)').setDefaultMemberPermissions(P.ManageGuild) };
+const diagnosis = { ...diagnostics, data: new SlashCommandBuilder().setName('diagnosis').setDescription('Same as /diagnostics: check the bot, music, server and internet (Manage Server only)').setDefaultMemberPermissions(P.ManageGuild) };
 module.exports = { commands: [diagnostics, diagnosis] };
-
