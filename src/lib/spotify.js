@@ -11,6 +11,7 @@ const info = spotifyInfo((url, opts) =>
   fetch(url, { ...opts, headers: { 'User-Agent': UA, ...(opts?.headers || {}) }, signal: AbortSignal.timeout(15_000) }),
 );
 
+const SPOTIFY_PUBLIC_LIMIT = 100;
 const SPOTIFY_RE = /^https?:\/\/(open\.spotify\.com|spotify\.link|play\.spotify\.com)\//i;
 const isSpotifyUrl = (q) => SPOTIFY_RE.test(q.trim());
 
@@ -58,7 +59,10 @@ async function load(url, fetcher = fetch) {
       uri: t.uri,
     }));
   if (!tracks.length) throw new Error('That Spotify link has no playable songs.');
-  return { name: data.name || data.title || 'Spotify', type: data.type, tracks };
+  // Spotify's public page lists at most 100 songs, and since February 2026 its API won't list other people's
+  // playlists either. So a full page means the playlist was probably cut short: say so instead of hiding it.
+  const limited = data.type !== 'track' && list.length >= SPOTIFY_PUBLIC_LIMIT;
+  return { name: data.name || data.title || 'Spotify', type: data.type, tracks, limited };
 }
 
 function firstTrack(html) {
@@ -147,4 +151,13 @@ const openUrl = (uri) => {
   return m ? `https://open.spotify.com/${m[1]}/${m[2]}` : null;
 };
 
-module.exports = { isSpotifyUrl, load, loadForPlayback, firstTrack, openUrl, albumOf, parseAlbum };
+module.exports = {
+  SPOTIFY_PUBLIC_LIMIT,
+  isSpotifyUrl,
+  load,
+  loadForPlayback,
+  firstTrack,
+  openUrl,
+  albumOf,
+  parseAlbum,
+};

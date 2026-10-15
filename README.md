@@ -151,7 +151,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 - The bot leaves after 2 minutes with nothing playing or nobody listening.
 - **Restarts don't end the music.** If the bot restarts, updates or loses the music server mid-song, it comes back and carries on from the same point with the same queue, as long as someone is still in the voice channel and it's back within 30 minutes. Stopping the music (by vote, staff or everyone leaving) clears it for good.
 - **Big playlists:** up to 2,000 songs per session. The first song starts while the rest load. The queue view shows the next 99; the rest still play.
-- **Spotify:** the bot reads the public Spotify page and plays each song from YouTube. Private playlists don't work, very long public playlists may be cut short by Spotify, and now and then a different recording is picked. The panel shows which YouTube video is playing so you can spot it.
+- **Spotify:** the bot reads the public Spotify page and plays each song from YouTube. **Spotify only shows the first 100 songs of a playlist**, and since February 2026 its official API doesn't list other people's playlists, so the bot can't get past 100. It tells you when this happens. For bigger playlists, copy the playlist to YouTube Music (free tools such as TuneMyMusic or Soundiiz do this) and `/play` the YouTube Music link, which loads up to 2,000 songs. Private playlists don't work, and now and then a different recording is picked; the panel shows which YouTube video is playing so you can spot it.
 - **YouTube:** uses the throwaway account's login, a patched YouTube client and the `yt-cipher` helper.
 - Volume is set by `DEFAULT_VOLUME` in `.env`.
 
@@ -376,6 +376,7 @@ docker compose up -d bot
 | Spotify links fail | `docker compose logs --tail 80 bot` |
 | Bot offline or commands missing | `docker compose logs --tail 80 bot`, then press Ctrl+R in Discord |
 | Birthday role not given or removed | The bot's Manage Roles permission and role order |
+| Queue stops at about 100 songs | It was a Spotify playlist: Spotify only shows bots 100 songs. Use a YouTube Music copy of the playlist |
 | Updates not happening | [Automatic updates](#automatic-updates) |
 
 Restart everything with `docker compose restart`. After editing `.env`, run `docker compose up -d`. Don't use `/setup rebuild` to fix or update anything.

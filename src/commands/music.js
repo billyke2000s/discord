@@ -10,6 +10,10 @@ const { embed, fmtDuration, truncate } = require('../lib/util');
 const { isStaff } = require('../lib/music');
 
 const eph = (content) => ({ content, flags: MessageFlags.Ephemeral });
+// Spotify only shows bots the first 100 songs of a playlist (its public page), and its API no longer lists
+// other people's playlists. Say so, rather than letting the queue silently end at 100.
+const SPOTIFY_LIMIT_NOTE =
+  '\n⚠️ Spotify only lets bots see the **first 100 songs** of a playlist, so the rest weren’t added. For the whole thing, copy the playlist to YouTube Music and `/play` that link.';
 
 // --- shared checks ---------------------------------------------------------
 
@@ -211,7 +215,7 @@ const play = {
         await q.importRemaining(result.remaining, result.tracks[0], interaction.user.id, async (r) => {
           const message = r.error
             ? `First track kept, but the rest of the playlist could not load: ${truncate(r.error, 200)}`
-            : `Added **${r.added}** more tracks from **${truncate(r.playlist || 'YouTube playlist', 80)}**${r.omitted ? ` (${r.omitted} left out: queue full)` : ''}${where}`;
+            : `Added **${r.added}** more tracks from **${truncate(r.playlist || 'YouTube playlist', 80)}**${r.omitted ? ` (${r.omitted} left out: queue full)` : ''}${where}${r.limited ? SPOTIFY_LIMIT_NOTE : ''}`;
           await interaction.editReply(message).catch(() => {});
         });
       } else if (result.playlist) {
@@ -219,7 +223,7 @@ const play = {
         await interaction.editReply({
           embeds: [
             embed('ok').setDescription(
-              `Queued **${added}** tracks from **${truncate(result.playlist, 80)}**${cut > 0 ? ` (${cut} left out: the queue is full)` : ''}${where}`,
+              `Queued **${added}** tracks from **${truncate(result.playlist, 80)}**${cut > 0 ? ` (${cut} left out: the queue is full)` : ''}${where}${result.limited ? SPOTIFY_LIMIT_NOTE : ''}`,
             ),
           ],
         });
