@@ -11,3 +11,6 @@ auto-update.json
 .failed-update
 .update-pending.json
 __pycache__/
+updates/
+.discord-update.lock
+

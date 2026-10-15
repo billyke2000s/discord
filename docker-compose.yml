@@ -72,10 +72,14 @@ services:
       - DATA_DIR=/app/data
       - LOCK_DIR=/app/locks
       - BACKUP_DIR=/app/backups
+      - UPDATE_REQUEST_DIR=/app/update-requests
+      - UPDATE_STATUS_DIR=/app/update-status
     volumes:
       - botdata:/app/data       # SQLite database lives here, survives rebuilds
       - ./locks:/app/locks      # second copy of the /setup rebuild lock, a plain folder on the VPS
       - ./backups:/app/backups  # daily database backups, a plain folder on the VPS
+      - ./updates/requests:/app/update-requests # fixed-schema owner update requests only
+      - ./updates/status:/app/update-status:ro # host updater status; read-only in the bot
     depends_on:
       lavalink:
         condition: service_healthy
@@ -87,3 +91,4 @@ networks:
 
 volumes:
   botdata:
+

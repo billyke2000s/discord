@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for owner Discord update requests
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=15s
+
+[Install]
+WantedBy=timers.target
+
+

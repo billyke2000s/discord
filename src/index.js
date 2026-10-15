@@ -6,6 +6,7 @@ const registerEvents = require('./events');
 const voice = require('./commands/voice');
 const verify = require('./commands/verify');
 const birthday = require('./commands/birthday');
+const updateBridge = require('./lib/update-bridge');
 const scamfilter = require('./lib/scamfilter');
 const antiRaid = require('./lib/antiraid');
 const backup = require('./lib/backup');
@@ -68,6 +69,7 @@ client.once(Events.ClientReady, async (c) => {
   });
   if (locked) console.log(`[lockdown] ${locked} lockdown(s) still active after restart`);
   backup.start();
+  updateBridge.start(client);
   birthday.sweep(client).catch(e => console.error('[birthday]', e.message));
   setInterval(() => {
     birthday.sweep(client).catch(e => console.error('[birthday]', e.message));
