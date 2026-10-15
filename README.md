@@ -2,9 +2,11 @@
 
 An all-in-one Discord bot for a server that you host yourself. It covers music (YouTube and Spotify), join-to-create voice channels, captcha verification, moderation, a scam-link filter, tickets, logs and a one-time server builder.
 
-Everything runs on your own server in Docker (3 small containers). No ports are opened to the internet.
+Runs on your VPS in three Docker containers: the bot, Lavalink (music), and the YouTube cipher helper. The supplied Compose configuration does not publish their ports to the internet.
 
-recommended server specs 2gb ram 1 core 
+Start with **2 GB RAM and 1–2 CPU cores**; **4 GB RAM and 2+ cores** gives more room. Actual capacity depends on playback and other VPS workloads.
+
+**Already installed?** Go to [Update the bot](#update-the-bot). Installing a release and enabling automatic updates are **two separate steps**. The installer does not ask about automatic updates.
 
 ---
 
@@ -19,12 +21,16 @@ recommended server specs 2gb ram 1 core
 7. [Music](#music)
 8. [Verification, moderation and protection](#verification-moderation-and-protection)
 9. [Who can reset the server](#who-can-reset-the-server)
-10. [Looking after it](#looking-after-it)
-11. [Backups](#backups)
-12. [Troubleshooting](#troubleshooting)
-13. [Limits and known weak spots](#limits-and-known-weak-spots)
-14. [Files](#files)
-15. [Credits](#credits)
+10. [Birthdays](#birthdays)
+11. [Update the bot](#update-the-bot)
+12. [Diagnostics](#diagnostics)
+13. [Backups](#backups)
+14. [Troubleshooting](#troubleshooting)
+15. [Limits and known weak spots](#limits-and-known-weak-spots)
+16. [Files](#files)
+17. [Credits](#credits)
+
+Quick links: [Manual update](#manual-update-or-configuration-changes) · [Enable automatic updates](#enable-automatic-updates-once) · [Update now](#check-and-update-now) · [Birthdays](#birthdays) · [Diagnostics](#diagnostics)
 
 ---
 
@@ -42,8 +48,10 @@ recommended server specs 2gb ram 1 core
 | 📋 **Logs** | Joins, leaves, deleted and edited messages, and every mod action. |
 | 👋 **Welcome, suggestions, self-promo** | Welcome message, 👍/👎 plus a discussion thread on suggestions, and a 7-day wait before self-promo. |
 | 🏗️ **Server builder** | `/setup rebuild` builds the whole server layout in one go. It works once, then locks. |
-| 🩺 **Diagnostics** | `/diagnostics` checks every part of the bot and says exactly what's wrong. |
-| 💾 **Backups** | Daily database backups, plus a full backup before every update. |
+| 🎂 **Birthdays** | Private birthday set/show commands, a friendly announcement including age, and a 👑 Birthday role for 24 hours. |
+| 🩺 **Diagnostics** | Grouped checks, resource readings, playback observations and a small speed test. Missing measurements are identified. |
+| 🔄 **Optional automatic updates** | Daily checks for published bot releases, music-session deferral, backups and health-based image rollback. Requires explicit setup below. |
+| 💾 **Backups** | Scheduled database backups and update snapshots; see the coverage and restore instructions below. |
 
 ---
 
@@ -58,30 +66,21 @@ recommended server specs 2gb ram 1 core
 
 ## How much server you need
 
-| Server | Works? |
+| Server | Installer mode / planning guidance |
 |---|---|
-| **1 GB RAM, 1 core** | ✅ with lean mode + swap (added automatically) |
-| **2 GB RAM, 1–2 cores** | ✅ lean mode, everything on |
-| **4 GB RAM, 2+ cores** | ✅ comfortable |
+| **1 GB RAM, 1 core** | Lean mode + swap; limited headroom, check actual memory use |
+| **2 GB RAM, 1–2 cores** | Lean mode; starting recommendation |
+| **4 GB RAM, 2+ cores** | Standard mode; more headroom |
 
 The installer checks how much RAM the server has and picks the mode itself: **3 GB or less = lean mode** (smaller music server, smaller caches, and swap on servers under 2 GB), more = standard mode. It checks again on every run, so upgrading your VPS switches modes by itself. To force a mode: `LEAN=yes bash install.sh` or `LEAN=no bash install.sh`. Every feature, Spotify included, works in both modes.
 
-Measured memory use (on a test machine, before any audio plays):
-
-| Part | Uses |
-|---|---|
-| Lavalink (music server) | ~217 MB lean / ~230 MB standard, idle; more while playing |
-| Bot | ~95 MB at start, ~145 MB once the first captcha has been drawn (measured without a Discord connection) |
-| Spotify links | nothing extra: the bot reads Spotify's public embed page itself |
-| YouTube cipher helper | not measured yet (1 worker, small cache) |
-
-More cores mostly make installs/updates faster and keep music smooth when other things run at the same time. `/diagnostics` shows the music server's CPU use and how smooth the audio was over the last minute.
+Use `/diagnostics` to check the actual resources visible to the bot. Its short samples can miss intermittent CPU/network problems; it cannot measure what listeners hear.
 
 ---
 
 ## Install
 
-It's one command, and it asks you for everything as it goes.
+Use the installer attached to a **published release**. Downloading repository files alone does not update a running container. The following terminal instructions assume root access and the standard `/root/server-bot` installation directory.
 
 1. Download **`install.sh`** from this repo's **Releases** (right-hand side of the repo page → latest release).
 2. Upload it to `/root` on the VPS (for example with WinSCP) and run:
@@ -105,7 +104,7 @@ The installer:
 4. **Installs Docker** from Docker's official repository and **downloads the ready-made bot** (built by this repo's GitHub Actions, pinned to an exact version) plus the other parts (checksums verified, versions pinned). If a ready-made part can't be downloaded, it builds that part on the VPS instead. That's slower but still works.
 5. **Waits** until the bot is online and music is connected, then tells you what to do next.
 
-**Updating later:** download the newest `install.sh` from Releases and run it again. It backs everything up first, keeps all your settings, and you just press Enter at each question.
+**Automatic updates are still off after installation.** To enable them, follow [Enable automatic updates once](#enable-automatic-updates-once). For later manual updates, use the fresh-download instructions below; an old `/root/install.sh` contains an old release.
 
 ---
 
@@ -113,9 +112,11 @@ The installer:
 
 Every push to `main` makes GitHub Actions (`.github/workflows/release.yml`):
 
-1. build the bot's image for normal (amd64) and ARM (arm64) servers and publish it to this repo's **Packages** (`ghcr.io/<owner>/<repo>`)
+1. run the regression tests, then build the bot's image for normal (amd64) and ARM (arm64) servers and publish it to this repo's **Packages** (`ghcr.io/<owner>/<repo>`)
 2. build `install.sh` pinned to that exact image (`scripts/build-installer.sh`)
-3. publish a new **Release** with `install.sh` attached
+3. publish a new **Release** with `install.sh` and the digest-pinned `update.json` manifest attached
+
+An open PR or an edit on a feature branch is not a release. Wait for **Build and release** to finish successfully. VPS automatic updates follow published releases, not every repository edit.
 
 One-time setup after the first successful run: go to your profile → **Packages** → this package → **Package settings** → **Change visibility** → **Public**. VPSes download the image without logging in, so it has to be public. (If the workflow can't create the release, set **Settings → Actions → General → Workflow permissions** to *Read and write*.)
 
@@ -131,7 +132,8 @@ Repo-only files (not copied to the VPS): `installer/install-head.sh` (the instal
 2. Run **`/setup rebuild`**. It shows everything it will delete and create, backs up every channel and DMs you the backup, asks you to type the server name to confirm, then builds the layout below, including roles, permissions and every feature.
    *Already have the layout from an older version? Run `/setup restyle` instead. It only renames channels, and every message is kept.*
 3. Write your rules in 📜・rules.
-4. Run **`/diagnostics`** and check everything is ✅.
+4. Run **`/diagnostics`**. Read failures, warnings and unavailable readings first; optional features being off is not necessarily a fault.
+5. If wanted, enable automatic updates on the VPS using the separate instructions below. Do not run `/setup rebuild` to update the bot.
 
 ---
 
@@ -167,6 +169,8 @@ Roles        Admin · Staff · Member
 | `/skip` · `/stop` | Vote to skip the song or stop the music |
 | `/pause` · `/resume` · `/queue` | |
 | `/nowplaying` | Bring the music panel back to the bottom |
+| `/birthday set month:September day:15 year:1966` | Save your own birthday; private reply |
+| `/birthday show` | Show only your saved birthday; private reply |
 | `/vc lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel |
 | `/help` | What you can use |
 
@@ -192,11 +196,17 @@ Roles        Admin · Staff · Member
 
 ## Music
 
-Music startup, playlist loading and buffering changes are explained in
-[the audit](docs/AUDIT.md). Public YouTube playlists can start one track while
-the remaining entries load; Spotify matches the next two tracks during playback.
-Unavailable page formats fall back to the normal loader. No audible playback
-improvement has been measured on the VPS yet.
+### Large playlists and the queue
+
+- **Playback capacity: 2,000 songs per music session**, including the current song. Imports share that capacity; excess entries are reported as omitted.
+- **Visible preview: up to 99 upcoming songs**, ten per `/queue page:<number>`. The footer shows the real queued count. Songs beyond the preview remain queued and play normally.
+- **First song before the full import:** supported public Spotify and YouTube playlist formats expose one starting song, which plays while the remaining list loads in the background. A watch link with a playlist starts from its selected video. If early discovery cannot read the source format, the compatibility fallback waits for the full source response.
+- **Lazy matching:** storing a title in the queue does not mean searching for its audio immediately. Spotify songs are matched to playable YouTube audio as needed, with only two upcoming matches prepared ahead. A 2,000-song queue does not trigger 2,000 playback searches at once. This two-song look-ahead does not limit what the queue can display.
+- Source metadata and queue capacity are different: if a provider returns only part of a playlist, the bot cannot infer the missing entries. Raising capacity does not establish source completeness.
+
+The released Lavalink configuration allows twenty YouTube playlist metadata pages. Apply music-server configuration changes through the **manual installer**, because automatic updates replace only the bot image. See [playlist behaviour and limitations](docs/PLAYLIST_STARTUP.md) and [the audit](docs/AUDIT.md).
+
+### Playing and controlling music
 
 - `/play` takes a **song name**, a **YouTube** link or playlist, or a **Spotify** link, playlist or album.
 - Each song posts a **panel** in the voice channel's own chat, with a progress bar that updates itself:
@@ -209,9 +219,29 @@ improvement has been measured on the VPS yet.
 - You must be in the voice channel to control the music. One bot plays in one voice channel at a time.
 - The bot leaves after 2 minutes with nothing playing or nobody listening.
 
-**How Spotify works:** Spotify never plays any audio itself, and no Spotify account is needed. The bot reads the song list from Spotify's public embed page (the player websites show), then when each song's turn comes it searches YouTube Music (then YouTube) for "title artist", preferring a result whose length matches the Spotify song, so live versions and covers lose. Private playlists won't load, and [Unverified] very long playlists may only give their first 100 songs.
+**Spotify links:** the bot reads public Spotify embed metadata and finds audio on YouTube Music/YouTube; it does not stream audio from Spotify. No Spotify account is configured. Private/inaccessible lists and changes to public embed formats can stop imports. Public embeds can expose fewer tracks than the original list; there is no promise that every Spotify playlist is imported completely. Matching uses title, artist and duration but can still choose the wrong recording.
 
 **How YouTube works:** the bot uses the throwaway Google account's login, a patched YouTube client and a self-hosted helper (`yt-cipher`) that unlocks the streams.
+
+## Birthdays
+
+In Discord, use:
+
+```text
+/birthday set month:September day:15 year:1966
+/birthday show
+```
+
+- Month accepts `September`, `Sep`, `Sept`, `9` or `09`, ignoring case. Other English month names and three-letter abbreviations also work.
+- Day accepts `15` or `15th` (and correct ordinals such as `1st`, `2nd`, `3rd`). Enter a four-digit birth year, 1900 or later. Impossible dates, non-leap February 29 dates and future birth dates are rejected without replacing the saved record.
+- **Set and show reply privately** and only access the caller's record. There is no `/birthday remove` command.
+- The date and birth year are saved in the database. On the birthday, the public birthday-channel announcement includes the age reached that day, for example: **“Happy birthday, @David! You’re 60 today! Wishing you a wonderful day and a brilliant year ahead.”** Only the birthday member is mentioned.
+- The bot creates a zero-permission **👑 Birthday** display role and assigns it for 24 hours. It needs **Manage Roles** and a bot role above the birthday role.
+- Birthdays use **UTC**, checked on startup and every minute. February 29 birthdays run on February 29 only. An entirely missed offline birthday is not announced afterwards.
+- Role expiry is saved across restarts. If the bot is offline at expiry, it removes the role after restarting; failed removals are retried. Changing the date does not enable repeated announcements in the same year.
+- Existing saved dates are preserved. If an old record lacks a year, use `/birthday set` once to add it; the bot omits age until it is supplied.
+
+The bot uses the configured birthday channel or a unique existing `🎂・birthdays` channel. A rebuild saves its new channel ID. See [birthday details](docs/BIRTHDAYS.md) for delivery/restart limitations.
 
 ---
 
@@ -257,39 +287,123 @@ Set it back to `no` afterwards.
 
 ---
 
-## Looking after it
+## Update the bot
 
-For optional scheduled updates with backups, health checks and image rollback, see
-[automatic updates](docs/AUTO_UPDATES.md). They are disabled by default and require
-explicit setup on the VPS. The [full audit](docs/AUDIT.md) records confirmed findings,
-remaining risks and the measurements needed to investigate cutouts.
+### Manual update or configuration changes
 
-The [diagnostic guide](docs/DIAGNOSTICS.md) explains the grouped report, load categories,
-small internet speed test, limits and one-minute cooldown.
+Stop music first. In PuTTY/your SSH terminal, download the **latest published installer**, then run it:
+
+```bash
+cd /root &&
+curl -fL https://github.com/billyke2000s/discord/releases/latest/download/install.sh -o install.sh &&
+bash install.sh
+```
+
+Choose **Yes** when asked **“Keep your current settings and just update?”** The installer attempts a pre-update backup, keeps saved settings and rebuild locks, installs the release files/configuration, and restarts the containers. Review any backup/startup warnings. No `/setup rebuild` is needed. Music and pending captcha challenges are not preserved through the restart.
+
+Use this route for first installation of the updater, Lavalink/YouTube configuration changes, or an installation built from a local/tag-only image. Re-running an old installer installs its old pinned release, so download it again when updating.
+
+### Enable automatic updates once
+
+**The installer does not prompt for this and does not enable it automatically.** After installing a recent release into `/root/server-bot`, run this separate block as root:
+
+```bash
+cd /root/server-bot &&
+printf '%s\n' '{"enabled": true}' > auto-update.json &&
+chmod 600 auto-update.json &&
+cp deployment/server-bot-update.service deployment/server-bot-update.timer /etc/systemd/system/ &&
+systemctl daemon-reload &&
+systemctl enable --now server-bot-update.timer &&
+systemctl list-timers server-bot-update.timer --no-pager
+```
+
+A row with a **NEXT** date confirms a scheduled check. It does **not** prove a release has been applied. A blank LAST value before the first run is normal. If you see `(END)` in a terminal viewer, press **Q** to return to the prompt. For a custom installation directory, follow the service-path changes in [the detailed updater guide](docs/AUTO_UPDATES.md) instead of copying these defaults unchanged.
+
+### When automatic updates run
+
+- Checks are scheduled **daily at 04:00 plus up to 30 minutes of random delay, in the VPS’s timezone**. Use `timedatectl` to see that timezone and `systemctl list-timers server-bot-update.timer --no-pager` for the actual next run. If the VPS uses UTC, 04:00–04:30 is 05:00–05:30 UK time during British Summer Time, and 04:00–04:30 in winter.
+- It checks the latest **published release manifest** and immutable bot-image digest. It does not follow unmerged PRs or unfinished builds.
+- If a **music session** exists, it defers until the next scheduled check. An idle/paused voice session can also block it; use `/stop` to end the session before a manual update check. It does not automatically retry immediately when a song ends.
+- A check missed while the VPS was off runs after it returns. Successful updates restart the bot briefly.
+- **Only the bot image updates.** The updater does not replace host source files, the updater script/timer, Compose configuration, Lavalink, the YouTube plugin or cipher helper. Run the manual installer for those changes. Host `src/` files may therefore differ from the code inside an automatically updated container.
+- Before deployment it checks health/free space, saves settings and an online database backup, then verifies Discord/Lavalink readiness. Startup/health failure triggers an image rollback and records the failed digest. This does not test audible playback or restore database writes; a request arriving during the idle-check race can still be interrupted.
+
+### Check and update now
+
+After enabling updates, stop music with `/stop`, then run:
+
+```bash
+systemctl start server-bot-update.service
+journalctl -u server-bot-update.service -n 40 --no-pager
+```
+
+The first command waits for that check to finish. Read the logs afterwards:
+
+| Log message | Meaning / next step |
+|---|---|
+| `Deployed and healthy` | The new bot passed startup/readiness checks. Run `/diagnostics` and try the changed feature. |
+| `Already on this release` | The running bot image matches the latest release. |
+| `Music session active; deferring` | End the music session with `/stop`, then run the service again. |
+| `Automatic updates disabled` | Check that `/root/server-bot/auto-update.json` contains `{"enabled": true}`. |
+| Current image must be pinned / current bot not healthy | Run the latest manual installer, or investigate the bot logs before retrying. |
+| A previously failed image / pending recovery error | Read [recovery instructions](docs/AUTO_UPDATES.md#inspect-disable-recover); do not delete recovery files blindly. |
+| `Unit ... not found` / deployment files missing | Install a recent release and complete the one-time enable step. |
+
+For a preview that changes nothing: `cd /root/server-bot && python3 deployment/update.py`.
+
+### Check status or turn automatic updates off
+
+```bash
+systemctl is-enabled server-bot-update.timer
+systemctl list-timers server-bot-update.timer --no-pager
+journalctl -u server-bot-update.service -n 40 --no-pager
+```
+
+To stop future scheduled runs and disable applying updates:
+
+```bash
+systemctl disable --now server-bot-update.timer
+printf '%s\n' '{"enabled": false}' > /root/server-bot/auto-update.json
+```
+
+Disabling the timer does not cancel an update that is already running. More details: [automatic updates, backups and recovery](docs/AUTO_UPDATES.md).
+
+## Diagnostics
+
+Use **`/diagnostics`** or **`/diagnosis`** in Discord. Both are admin-only, produce the same private report, and share **one check at a time with a one-minute cooldown**. The report groups server resources, internet, music/voice, permissions, features and storage, with problems and next steps first. A text attachment retains the complete detail.
+
+- CPU busy/disk wait/hypervisor wait, available RAM/swap, bot process/container readings, music heap and disk space are labelled separately. Unavailable values are not passes. The bot cannot read every other container's resource limit.
+- Each accepted check includes a bounded HTTPS test: three response-time samples, a 2 MiB download and a 256 KiB generated-data upload. The total deadline is 12 seconds. Results are **sampled Mbps**, not full connection capacity or Discord packet loss.
+- Music checks use position progress, update age and available voice/frame readings. They cannot prove that listeners hear smooth audio. If audio cuts out, save the report **during the problem**, before restarting; a later healthy sample can miss it.
+- ✅ means that specific check passed; ⚠️ needs review; ❌ failed; ❔ could not be measured; ➖ is off/informational. A disabled optional feature is not necessarily broken.
+
+See [the diagnostic guide](docs/DIAGNOSTICS.md) and [audit findings and remaining limitations](docs/AUDIT.md).
+
+### Everyday VPS commands
 
 ```bash
 cd /root/server-bot
-docker compose ps                              # all 3 should say "Up"
+docker compose ps                             # check all three containers
 docker compose logs -f bot                     # watch the bot (Ctrl+C to stop watching)
 docker compose logs --tail 80 lavalink         # music log
 docker compose restart                         # restart everything
-bash /root/install.sh                          # update / repair / change settings
 ```
 
 - **VPS reboots:** everything starts again by itself, and music reconnects automatically. Anything that was playing stops, so people just `/play` again.
-- **Settings** live in `/root/server-bot/.env`. After editing it by hand, run `docker compose up -d`.
-- **Logs** are capped at 30 MB per container, so they can't fill the disk.
+- **Connection/deployment settings and secrets** live in `/root/server-bot/.env`. After editing it by hand, run `docker compose up -d`. Per-server feature settings and birthdays are stored separately in the persistent database.
+- **Logs** rotate with the configured Docker limits. Backups and other files still consume disk space; monitor free space.
 
 ---
 
 ## Backups
 
-- **Daily:** the database (warnings, settings, tickets, lockdown, locks) is saved to `/root/server-bot/backups/`. The last 7 daily and 4 weekly copies are kept.
-- **Before every update:** `install.sh` saves the database, `.env` and the lock files into `backups/pre-update-<date>/`. The last 5 are kept.
+- **Scheduled database backups:** saved to `/root/server-bot/backups/`, with the last 7 daily and 4 weekly copies retained. They include stored birthdays, warnings and settings. They are not copies of every Discord channel/message or VPS file.
+- **Manual installer:** attempts a database/settings/lock snapshot in `backups/pre-update-<date>/`; the last 5 directories are kept. Read any backup warning before relying on the snapshot. Raw pre-update database copies may include a matching WAL file and need to be restored together.
+- **Automatic updater:** makes an online SQLite backup plus a private settings/Compose/lock snapshot before deployment. The last five pre-update online database backups are retained; settings snapshot directories remain until you remove them. Monitor disk use and keep a protected off-VPS copy.
 - If the database is ever damaged, the bot **refuses to start** and says so, instead of running on broken data.
 - ⚠️ Backups contain your tokens. Never share the `backups` folder.
 
-**Restoring a backup:**
+**Restoring a scheduled/online `.sqlite` backup:** replace `FILE.sqlite` below with the actual backup filename. These commands overwrite the active database. They are not a procedure for restoring a raw installer snapshot with a separate WAL file.
 
 ```bash
 cd /root/server-bot
@@ -303,7 +417,7 @@ docker compose up -d bot
 
 ## Troubleshooting
 
-1. Run **`/diagnostics`** in Discord. Anything marked ❌ is the problem.
+1. Run **`/diagnostics`** in Discord. Follow the next steps for failures, warnings and unavailable measurements. A clean sample does not rule out an intermittent problem.
 2. On the VPS, run `cd /root/server-bot && docker compose ps` and check all 3 say **Up**.
 3. Check the log for whatever's broken:
 
@@ -312,8 +426,12 @@ docker compose up -d bot
 | Music won't play / "No results found" | `docker compose logs --tail 80 lavalink` |
 | Spotify links fail | `/diagnostics` shows whether Spotify's page can be read; `docker compose logs --tail 80 bot` |
 | Bot offline or commands missing | `docker compose logs --tail 80 bot`, then press Ctrl+R in Discord |
+| `/birthday` still says “no birth year stored” or rejects month names | The running bot/registered commands are old. Update, check bot startup/command-sync logs, then refresh Discord. |
+| Birthday role not assigned/removed | Check bot Manage Roles permission, role hierarchy and `[birthday]` errors in the bot log. |
+| Updates not happening | Read the timer and service logs in [Check and update now](#check-and-update-now). Enabling a timer alone does not prove an update succeeded. |
+| Queue preview stops at 99 | Read the footer's actual queued count. The preview stops at 99; queued songs beyond it still play. Partial source metadata is a separate issue. |
 
-4. Most problems are fixed by `docker compose restart` or by running `bash /root/install.sh` again. Re-running the installer is always safe.
+4. Preserve relevant logs before restarting. If you need a reinstall/configuration refresh, download the latest installer using [Manual update](#manual-update-or-configuration-changes). Do not use `/setup rebuild` as a repair/update command.
 
 **YouTube account banned?** Make a new throwaway Google account, delete the value after `YOUTUBE_REFRESH_TOKEN=` in `.env`, and run `bash /root/install.sh`. It shows a new login code.
 
@@ -337,6 +455,8 @@ docker compose up -d bot
 ├─ .env                     your settings and tokens (private, never share)
 ├─ docker-compose.yml       the 3 containers: bot, lavalink, yt-cipher
 ├─ src/                     the bot's code
+├─ deployment/              updater script and systemd service/timer templates
+├─ auto-update.json         automatic-update opt-in (created when enabled)
 ├─ lavalink/application.yml music server config (secrets come from .env)
 ├─ lavalink/plugins/        YouTube plugin (downloaded and checked by install.sh)
 ├─ yt-cipher/               YouTube helper (pinned version)
