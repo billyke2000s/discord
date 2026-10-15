@@ -194,3 +194,7 @@ A later review of commit `b1cdac2` made these changes. All tests, lint and forma
 
 Still open: issues 3 (rebuild backup completeness and CPU), 4 (manual installer continuing after a failed backup), 5 (setup trust model), 6 (no durable music queue) and 7 (external formats and action pinning) above. `better-sqlite3` 13 is available but not adopted; upgrade it deliberately with a test install.
 
+### Persistent music
+
+Remaining issue 6 is addressed. Each server's queue, current song and volume are saved to SQLite (`music_sessions`) within 5 seconds of a change, and the song position every 30 seconds on its own (so a 2,000-song queue isn't rewritten that often). Shutdown and losing the music server save immediately and leave without forgetting; stopping on purpose (vote, staff, everyone left, idle, bot disconnected) deletes the save. On startup and whenever the music server reconnects, sessions newer than 30 minutes resume in their voice channel if a person is in it, starting the current song at the saved position. Not saved: vote counts, play history for Back, and the unloaded part of a playlist import that was still running. The automatic updater still defers while music plays; that could now be relaxed but hasn't been. Tested with a real SQLite database and a simulated player, not live Lavalink.
+

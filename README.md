@@ -16,7 +16,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 
 | | |
 |---|---|
-| 🎵 **Music** | Song names, YouTube links/playlists and Spotify links/playlists/albums. A live panel with vote back, skip, stop and shuffle, and a paged queue. |
+| 🎵 **Music** | Song names, YouTube links/playlists and Spotify links/playlists/albums. A live panel with vote back, skip, stop and shuffle, and a paged queue. Carries on after restarts and updates. |
 | 🔊 **Join-to-create voice** | Join the lobby to get your own voice channel, controlled with `/vc`. It's deleted when it empties. |
 | ✅ **Captcha verification** | New people type a code from an image before they see the server. Anyone who doesn't verify in 15 minutes is kicked. |
 | 🛡️ **Moderation** | warn, timeout, kick, ban, purge, slowmode and more, all logged. `/lockdown` for raids. |
@@ -142,6 +142,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 - **⏮️ Back, ⏭️ Skip, ⏹️ Stop and 🔀 Shuffle** need votes from **more than half** of the people in the channel. Staff act instantly. 📜 Queue opens a private queue view.
 - You must be in the bot's voice channel to control it. One bot plays in one channel at a time.
 - The bot leaves after 2 minutes with nothing playing or nobody listening.
+- **Restarts don't end the music.** If the bot restarts, updates or loses the music server mid-song, it comes back and carries on from the same point with the same queue, as long as someone is still in the voice channel and it's back within 30 minutes. Stopping the music (by vote, staff or everyone leaving) clears it for good.
 - **Big playlists:** up to 2,000 songs per session. The first song starts while the rest load. The queue view shows the next 99; the rest still play.
 - **Spotify:** the bot reads the public Spotify page and plays each song from YouTube. Private playlists don't work, very long public playlists may be cut short by Spotify, and now and then a different recording is picked. The panel shows which YouTube video is playing so you can spot it.
 - **YouTube:** uses the throwaway account's login, a patched YouTube client and the `yt-cipher` helper.
@@ -320,7 +321,7 @@ Restart everything with `docker compose restart`. After editing `.env`, run `doc
 ## Limits
 
 - **YouTube and Spotify use unofficial routes.** Streaming YouTube through a bot is against YouTube's terms, which is why a throwaway account is used. Either service can change and break playback until the tools are updated.
-- Music, votes and pending captchas are kept in memory, so a restart or update ends them.
+- Votes in progress and half-finished captchas are lost on a restart. Music resumes (see [Music](#music)), but a playlist still loading at that moment may come back incomplete.
 - One bot plays music in one voice channel at a time (a Discord rule).
 - `/vc rename` works twice per channel every 10 minutes, and `/purge` can't delete messages older than 14 days (both Discord rules).
 - The scam lists are run by volunteers, so brand-new scam sites may be missing.
