@@ -16,7 +16,7 @@ const help = {
       {
         name: '🎵 Music',
         value:
-          '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
+          '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back · `/status` checks whether music is working or down\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
       },
       {
         name: '🔊 Your voice channel',
@@ -31,7 +31,7 @@ const help = {
       });
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
       let admin =
-        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` or `/diagnosis` (checks everything and says what to fix; once a minute)';
+        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` (full check of the bot and VPS, says what to fix; once a minute)';
       if (isOwner(interaction.user, interaction.guild)) {
         const locked = rebuildLocked(interaction.guildId);
         admin += locked

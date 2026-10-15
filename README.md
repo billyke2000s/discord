@@ -27,7 +27,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 | 👋 **Welcome, suggestions, self-promo** | Welcome message, 👍/👎 plus a discussion thread on suggestions, and a 7-day wait before self-promo. |
 | 🏗️ **Server builder** | `/setup rebuild` builds the whole server layout in one go. It works once, then locks. |
 | 🎂 **Birthdays** | Private set/show commands, an announcement with age, and a 👑 Birthday role for 24 hours. |
-| 🩺 **Diagnostics** | One command checks the bot, music, server and internet and tells you what to fix. |
+| 🩺 **Status checks** | `/status` lets anyone see if music is down or it's just them. `/diagnostics` gives admins the full picture and what to fix. |
 | 🔄 **Updates** | Optional daily automatic updates with backups and automatic rollback, or `/update` from Discord. |
 | 💾 **Backups** | Daily and weekly database backups. |
 
@@ -107,6 +107,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/skip` · `/stop` | Vote to skip the song or stop the music |
 | `/queue` | View the queue, ten songs per page |
 | `/nowplaying` | Bring the music panel back to the bottom |
+| `/status` | Is the music working, or is it just me? A quick private check |
 | `/birthday set` · `/birthday show` | Save or see your own birthday (private reply) |
 | `/vc lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel |
 | `/help` | What you can use |
@@ -117,7 +118,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 ### Admins (Manage Server)
 | Command | What it does |
 |---|---|
-| `/diagnostics` or `/diagnosis` | Check everything and get a plain summary plus a detailed file |
+| `/diagnostics` | Full check of the bot and VPS: a plain summary plus a detailed file |
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
@@ -256,7 +257,12 @@ Custom install folder, trust model and recovery: [docs/AUTO_UPDATES.md](docs/AUT
 
 ## Diagnostics
 
-Run **`/diagnostics`** (or `/diagnosis`) in Discord. It needs Manage Server, the reply is private, and it can run once a minute.
+There are two checks:
+
+- **`/status`** is for everyone. It answers "is the music down, or is it just me?": bot online, music server, finding songs, Spotify links, and what's playing here. It shows nothing about the VPS or other members, tells the person what to try, and posts a note in 📋・mod-logs (at most every 10 minutes) when music is down or stuck. YouTube and Spotify results are shared for 2 minutes, so lots of people checking at once doesn't hit those services.
+- **`/diagnostics`** is for admins (Manage Server). It checks everything, including the VPS, once a minute.
+
+The rest of this section is about `/diagnostics`. The reply is private.
 
 You get a short summary: a verdict, one line each for Bot, Music, Internet, Server, Data and Setup, and what to do about anything that needs attention. The attached `bot-diagnostics.txt` has every number for whoever is debugging.
 

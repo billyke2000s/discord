@@ -11,6 +11,7 @@ const modules = [
   require('./setup'),
   require('./help'),
   require('./diagnostics'),
+  require('./status'),
 ];
 
 const commands = new Map(); // name -> { data, execute }

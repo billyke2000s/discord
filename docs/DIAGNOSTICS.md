@@ -1,6 +1,6 @@
 # Reading the bot check
 
-`/diagnostics` and `/diagnosis` are the same command. They need Manage Server, the reply is private, and only one check runs at a time, once a minute for the whole bot. A refused request does no checking at all. The cooldown resets when the bot restarts.
+`/diagnostics` is the full admin check. Members have `/status` instead, which only says whether music is working (see the README). `/diagnostics` needs Manage Server, the reply is private, and only one check runs at a time, once a minute for the whole bot. A refused request does no checking at all. The cooldown resets when the bot restarts.
 
 ## What you get
 

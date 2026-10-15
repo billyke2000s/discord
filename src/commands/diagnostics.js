@@ -1,4 +1,4 @@
-// /diagnostics (alias /diagnosis): checks every part of the bot and reports in plain English.
+// /diagnostics: the full admin check of every part of the bot, in plain English. Members use /status instead.
 // Manage Server only, private reply, never shows tokens or passwords.
 // The embed is a short summary; the attached text file has every number for whoever is debugging.
 const fs = require('node:fs');
@@ -495,11 +495,4 @@ const diagnostics = {
   },
 };
 
-const diagnosis = {
-  ...diagnostics,
-  data: new SlashCommandBuilder()
-    .setName('diagnosis')
-    .setDescription('Same as /diagnostics: check the bot, music, server and internet (Manage Server only)')
-    .setDefaultMemberPermissions(P.ManageGuild),
-};
-module.exports = { commands: [diagnostics, diagnosis] };
+module.exports = { commands: [diagnostics] };

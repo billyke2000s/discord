@@ -11,16 +11,13 @@ stub('../src/lib/antiraid', {});
 stub('../src/lib/backup', {});
 stub('../src/lib/commandsync', { rebuildLocked: () => false });
 const { commands } = require('../src/commands/diagnostics');
-test('diagnosis alias preserves permission requirements and shares the same execution/gate', async () => {
+test('/diagnostics is the only full check, needs Manage Server and holds one shared gate', async () => {
+  const { PermissionFlagsBits } = require('discord.js');
   assert.deepEqual(
     commands.map((c) => c.data.name),
-    ['diagnostics', 'diagnosis'],
+    ['diagnostics'],
   );
-  assert.equal(commands[0].execute, commands[1].execute);
-  assert.equal(
-    commands[0].data.toJSON().default_member_permissions,
-    commands[1].data.toJSON().default_member_permissions,
-  );
+  assert.equal(commands[0].data.toJSON().default_member_permissions, String(PermissionFlagsBits.ManageGuild));
   await assert.rejects(
     commands[0].execute({
       deferReply: async () => {
@@ -30,7 +27,7 @@ test('diagnosis alias preserves permission requirements and shares the same exec
     /Discord failed/,
   );
   let response;
-  await commands[1].execute({
+  await commands[0].execute({
     reply: async (r) => {
       response = r;
     },
