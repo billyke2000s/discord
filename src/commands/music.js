@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { embed, fmtDuration, truncate } = require('../lib/util');
 const { isStaff } = require('../lib/music');
 
@@ -18,11 +18,16 @@ async function needQueue(interaction) {
 
 // Skip/stop: majority vote of the people in the VC. Staff skip or stop instantly.
 async function doVote(interaction, q, kind) {
+  if(kind==='previous' && !q.history.length)return interaction.reply(eph('There is no previous song in this music session yet.'));
   const title = truncate(q.current.info.title, 80);
   if (isStaff(interaction.member)) {
     if (kind === 'skip') {
       await interaction.reply({ embeds: [embed('grey').setDescription(`⏭ ${interaction.user} (staff) skipped **${title}**.`)] });
       return q.skip();
+    }
+    if(kind==='previous') {
+      await interaction.reply({embeds:[embed('grey').setDescription(`⏮ ${interaction.user} (staff) went back to the previous song.`)]});
+      return q.previous();
     }
     await interaction.reply({ embeds: [embed('grey').setDescription(`⏹ ${interaction.user} (staff) stopped the music.`)] });
     return q.destroy();
@@ -33,10 +38,14 @@ async function doVote(interaction, q, kind) {
       await interaction.reply({ embeds: [embed('grey').setDescription(`⏭ Skipped **${title}** by vote (${v.count}/${v.needed}).`)] });
       return q.skip();
     }
+    if(kind==='previous') {
+      await interaction.reply({embeds:[embed('grey').setDescription(`⏮ Going back to the previous song by vote (${v.count}/${v.needed}).`)]});
+      return q.previous();
+    }
     await interaction.reply({ embeds: [embed('grey').setDescription(`⏹ Stopped by vote (${v.count}/${v.needed}).`)] });
     return q.destroy();
   }
-  await interaction.reply(eph(`${v.already ? 'You already voted.' : 'Vote counted.'} ${kind === 'skip' ? 'Skip' : 'Stop'} votes: **${v.count}/${v.needed}** (needs more than half of the people in the channel).`));
+  await interaction.reply(eph(`${v.already ? 'You already voted.' : 'Vote counted.'} ${kind === 'skip' ? 'Skip' : kind==='previous' ? 'Go back' : 'Stop'} votes: **${v.count}/${v.needed}** (needs more than half of the people in the channel).`));
   q.refreshPanel();
 }
 
@@ -55,6 +64,28 @@ function queueEmbed(q, page = 1) {
 }
 
 // --- commands --------------------------------------------------------------
+function queuePayload(q, userId, page=1) {
+  const pages=Math.max(1,Math.ceil(Math.min(q.tracks.length,99)/10));
+  page=Math.min(Math.max(1,page),pages);
+  let index=0;
+  const button=(label,target,disabled)=>new ButtonBuilder()
+    .setCustomId(`music:queuepage:${q.sessionId}:${userId}:${target}:${index++}`)
+    .setLabel(label).setStyle(ButtonStyle.Secondary).setDisabled(disabled);
+  return {embeds:[queueEmbed(q,page)],components:[new ActionRowBuilder().addComponents(
+    button('⏮ First',1,page===1),button('◀ Previous',Math.max(1,page-1),page===1),
+    button(`Page ${page}/${pages}`,page,true),
+    button('Next ▶',Math.min(pages,page+1),page===pages),button('Last ⏭',pages,page===pages),
+  )]};
+}
+async function queuePage(i,suffix) {
+  const match=/^([a-f0-9]{16}):(\d+):(\d{1,2}):[0-4]$/.exec(suffix);
+  if(!match)return i.reply(eph('This queue control is invalid. Open /queue again.'));
+  if(i.user.id!==match[2])return i.reply(eph('Open /queue to browse your own queue view.'));
+  const q=i.client.music.get(i.guildId);
+  if(!q?.current || q.destroyed || q.sessionId!==match[1])
+    return i.update({content:'This music session has ended. Open /queue for the current session.',embeds:[],components:[]});
+  return i.update(queuePayload(q,i.user.id,Number(match[3])));
+}
 
 const play = {
   data: new SlashCommandBuilder().setName('play').setDescription('Play a song or add it to the queue')
@@ -136,29 +167,7 @@ const stop = {
   },
 };
 
-async function setPaused(q, paused) {
-  await q.setPaused(paused);
-  if (paused) q.scheduleIdleLeave(); else q.clearIdle();
-  q.refreshPanel();
-}
-
-const pause = {
-  data: new SlashCommandBuilder().setName('pause').setDescription('Pause playback'),
-  async execute(interaction) {
-    const q = await needQueue(interaction); if (!q) return;
-    await setPaused(q, true);
-    await interaction.reply('⏸ Paused. (I leave if paused for 2 minutes.)');
-  },
-};
-
-const resume = {
-  data: new SlashCommandBuilder().setName('resume').setDescription('Resume playback'),
-  async execute(interaction) {
-    const q = await needQueue(interaction); if (!q) return;
-    await setPaused(q, false);
-    await interaction.reply('▶️ Resumed.');
-  },
-};
+const removedControl=i=>i.reply(eph('Pause/resume and volume controls have been removed. Open /nowplaying for the current controls.'));
 
 const queue = {
   data: new SlashCommandBuilder().setName('queue').setDescription('Show the queue')
@@ -166,7 +175,7 @@ const queue = {
   async execute(interaction) {
     const q = interaction.client.music.get(interaction.guildId);
     if (!q?.current) return interaction.reply(eph('Nothing is playing.'));
-    await interaction.reply({ embeds: [queueEmbed(q, interaction.options.getInteger('page') || 1)] });
+    await interaction.reply(queuePayload(q, interaction.user.id, interaction.options.getInteger('page') || 1));
   },
 };
 
@@ -182,11 +191,8 @@ const nowplaying = {
 // --- panel buttons ---------------------------------------------------------
 
 const components = {
-  'music:toggle': async (i) => {
-    const q = await needQueue(i); if (!q) return;
-    await i.deferUpdate();
-    await setPaused(q, !q.player.paused);
-  },
+  'music:toggle': removedControl,
+  'music:previous': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'previous'); },
   'music:skip': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'skip'); },
   'music:stop': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'stop'); },
   'music:shuffle': async (i) => {
@@ -198,21 +204,12 @@ const components = {
   'music:queue': async (i) => {
     const q = i.client.music.get(i.guildId);
     if (!q?.current) return i.reply(eph('Queue is empty.'));
-    await i.reply({ embeds: [queueEmbed(q)], flags: MessageFlags.Ephemeral });
+    await i.reply({ ...queuePayload(q,i.user.id), flags: MessageFlags.Ephemeral });
   },
-  'music:voldown': async (i) => {
-    const q = await needQueue(i); if (!q) return;
-    await i.deferUpdate();
-    await q.setVolume(q.volume - 10);
-    q.refreshPanel();
-  },
-  'music:volup': async (i) => {
-    const q = await needQueue(i); if (!q) return;
-    await i.deferUpdate();
-    await q.setVolume(q.volume + 10);
-    q.refreshPanel();
-  },
+  'music:voldown': removedControl,
+  'music:volup': removedControl,
 };
 
-module.exports = { commands: [play, skip, stop, pause, resume, queue, nowplaying], components, queueEmbed };
+module.exports = { commands: [play, skip, stop, queue, nowplaying], components,
+  prefixComponents:[['music:queuepage:',queuePage]],queueEmbed,queuePayload };
 

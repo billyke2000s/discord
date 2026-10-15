@@ -3,6 +3,7 @@ const { Shoukaku, Connectors } = require('shoukaku');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits: P } = require('discord.js');
 const { embed, fmtDuration, truncate, isBotAdmin } = require('./util');
 const spotify = require('./spotify');
+const { randomBytes } = require('node:crypto');
 const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlist');
 const { AudioMonitor } = require('./audio-monitor');
 
@@ -76,6 +77,7 @@ class GuildQueue {
   constructor(manager, guildId, player, textChannel, voiceChannelId) {
     this.manager = manager;
     this.guildId = guildId;
+    this.sessionId = randomBytes(8).toString('hex');
     this.player = player;
     this.textChannel = textChannel;       // where the panel goes: the voice channel's own chat if I can post there
     this.fallbackChannel = null;          // the channel /play was used in, if the voice chat fails
@@ -90,7 +92,9 @@ class GuildQueue {
     this.preparing = new WeakMap();
     this.prefetching = false;
     this.volume = Number(process.env.DEFAULT_VOLUME || 60);
-    this.votes = { skip: new Set(), stop: new Set() };
+    this.votes = { skip: new Set(), stop: new Set(), previous: new Set() };
+    this.history = [];
+    this.playedCurrent = false;
     this.panelMsg = null;
     this.panelTimer = null;
     this.panelGeneration = 0;
@@ -111,6 +115,7 @@ class GuildQueue {
       this.clock = { base: 0, at: Date.now() };
       this.votes.skip.clear();
       this.votes.stop.clear();
+      this.votes.previous.clear();
       this.postPanel();
     });
     player.on('end', (e) => {
@@ -161,7 +166,7 @@ class GuildQueue {
   }
 
   // ---------- votes ----------
-  // kind: 'skip' | 'stop'. Returns { passed, count, needed, already }.
+  // kind: 'skip' | 'stop' | 'previous'. Returns { passed, count, needed, already }.
   vote(kind, userId) {
     const humans = this.listeners();
     const set = this.votes[kind];
@@ -191,7 +196,12 @@ class GuildQueue {
       this.send(embed('grey').setDescription(`⏭ Skipped **${truncate(this.current.info.title, 80)}** by vote.`));
       return this.skip();
     }
-    if (stop.count || skip.count) this.refreshPanel(); // vote counts on the buttons changed
+    const previous = this.voteStatus('previous');
+    if(previous.count > 0 && previous.count >= previous.needed && this.history.length) {
+      this.send(embed('grey').setDescription('⏮ Going back to the previous song by vote.'));
+      return this.previous();
+    }
+    if (stop.count || skip.count || previous.count) this.refreshPanel();
   }
 
   // ---------- panel ----------
@@ -208,7 +218,7 @@ class GuildQueue {
     const len = t.info.length, pos = Math.max(0, Math.min(this.position(), len || 0));
     const time = t.info.isStream ? '🔴 LIVE' : `\`${fmtDuration(pos)}\` ${progressBar(pos, len)} \`${fmtDuration(len)}\``;
     const next = this.tracks.slice(0, 3).map((x, i) => `\`${i + 1}.\` ${truncate(x.info.title, 55)}`).join('\n') || '*Nothing — add songs with `/play`*';
-    const skip = this.voteStatus('skip'), stop = this.voteStatus('stop');
+    const skip = this.voteStatus('skip'), stop = this.voteStatus('stop'), previous = this.voteStatus('previous');
     const paused = this.player.paused;
     // Spotify songs: show which YouTube upload is really playing, so a wrong match is easy to spot.
     const pf = t.playedFrom, pfUrl = safeUrl(pf?.uri);
@@ -226,20 +236,16 @@ class GuildQueue {
         { name: 'In queue', value: String(this.tracks.length), inline: true },
         { name: 'Up next', value: next },
       )
-      .setFooter({ text: `Skip and stop are majority votes (${skip.needed} of ${this.listeners().size} listening). Staff can skip or stop instantly.` });
+      .setFooter({ text: `Back, skip and stop need a majority (${skip.needed} of ${this.listeners().size} listening). Staff can act instantly.` });
 
     const row1 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('music:toggle').setEmoji(paused ? '▶️' : '⏸️').setLabel(paused ? 'Resume' : 'Pause').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('music:previous').setEmoji('⏮️').setLabel(previous.count ? `Back ${previous.count}/${previous.needed}` : 'Vote go back').setStyle(ButtonStyle.Primary).setDisabled(!this.history.length),
       new ButtonBuilder().setCustomId('music:skip').setEmoji('⏭️').setLabel(skip.count ? `Skip ${skip.count}/${skip.needed}` : 'Vote skip').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('music:stop').setEmoji('⏹️').setLabel(stop.count ? `Stop ${stop.count}/${stop.needed}` : 'Vote stop').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('music:shuffle').setEmoji('🔀').setLabel('Shuffle').setStyle(ButtonStyle.Secondary).setDisabled(this.tracks.length < 2),
       new ButtonBuilder().setCustomId('music:queue').setEmoji('📜').setLabel('Queue').setStyle(ButtonStyle.Secondary),
     );
-    const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('music:voldown').setEmoji('🔉').setLabel(`-${VOL_STEP}%`).setStyle(ButtonStyle.Secondary).setDisabled(this.volume <= VOL_MIN),
-      new ButtonBuilder().setCustomId('music:volup').setEmoji('🔊').setLabel(`+${VOL_STEP}%`).setStyle(ButtonStyle.Secondary).setDisabled(this.volume >= VOL_MAX),
-    );
-    return { embeds: [e], components: [row1, row2] };
+    return { embeds: [e], components: [row1] };
   }
 
   // New song: delete the old panel and post a fresh one at the bottom of the chat.
@@ -281,7 +287,9 @@ class GuildQueue {
   // ---------- queue control ----------
   add(tracks) {
     if (this.destroyed) return 0;
-    const room = MAX_QUEUE - this.tracks.length - (this.current ? 1 : 0);
+    // Replaying a previously imported song does not discard queued songs or
+    // consume another import slot; the original interrupted song stays up next.
+    const room = MAX_QUEUE - this.tracks.filter(t=>!t.replay).length - (this.current && !this.current.replay ? 1 : 0);
     const added = tracks.slice(0, Math.max(0, room));
     this.tracks.push(...added);
     this.prefetch();
@@ -383,6 +391,11 @@ class GuildQueue {
 
   async advance() {
     if (this.destroyed) return;
+    if(this.current && this.playedCurrent) {
+      this.history.push(this.current);
+      if(this.history.length>MAX_QUEUE)this.history.shift();
+    }
+    this.playedCurrent=false;
     for (;;) {
       this.current = this.tracks.shift() || null;
       if (!this.current) {
@@ -396,6 +409,7 @@ class GuildQueue {
         try {
           await this.player.playTrack({ track: { encoded: track.encoded } });
           if (this.destroyed) return;
+          this.playedCurrent=true;
           this.prefetch();
           return;
         } catch (err) {
@@ -424,6 +438,23 @@ class GuildQueue {
     await this.player.stopTrack();
   }
 
+  previous() {
+    if(this.previousTransition)return this.previousTransition;
+    const target=this.current;
+    const task=(async()=>{
+      if(this.transition)await this.transition;
+      if(this.destroyed || !target || target!==this.current || !this.history.length)return false;
+      const back=this.history.pop();
+      this.tracks.unshift(target);
+      this.tracks.unshift({...back,replay:true});
+      this.playedCurrent=false;
+      await this.next();
+      return true;
+    })().finally(()=>{if(this.previousTransition===task)this.previousTransition=null;});
+    this.previousTransition=task;
+    return task;
+  }
+
   scheduleIdleLeave() {
     this.clearIdle();
     this.idleTimer = setTimeout(() => {
@@ -444,6 +475,7 @@ class GuildQueue {
     this.monitor.stop('session-destroyed');
     this.revision++;
     this.tracks.length = 0;
+    this.history.length = 0;
     this.clearIdle();
     this.manager.queues.delete(this.guildId);
     await this.endPanel('stopped');

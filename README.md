@@ -38,7 +38,7 @@ Quick links: [Manual update](#manual-update-or-configuration-changes) · [Enable
 
 | | |
 |---|---|
-| 🎵 **Music** | Song names, YouTube links/playlists and Spotify links/playlists/albums. A self-updating panel with pause, vote skip, vote stop, shuffle, queue and volume. |
+| 🎵 **Music** | Song names, YouTube links/playlists and Spotify links/playlists/albums. A self-updating panel with vote go back, vote skip, vote stop, shuffle and a paged queue. |
 | 🔊 **Join-to-create voice** | Join the lobby and you get your own voice channel, which you control with `/vc`. It's deleted when it empties. |
 | ✅ **Captcha verification** | New people must read an image code before they see the server. Anyone who doesn't verify in 15 minutes is kicked. |
 | 🛡️ **Moderation** | warn, timeout, kick, ban, purge, slowmode and more, all logged. `/lockdown` for raids. |
@@ -167,7 +167,7 @@ Roles        Admin · Staff · Member
 |---|---|
 | `/play <song or link>` | Play or queue a song name, YouTube link or Spotify link |
 | `/skip` · `/stop` | Vote to skip the song or stop the music |
-| `/pause` · `/resume` · `/queue` | |
+| `/queue` | View the queue with First/Previous/Next/Last page arrows |
 | `/nowplaying` | Bring the music panel back to the bottom |
 | `/birthday set month:September day:15 year:1966` | Save your own birthday; private reply |
 | `/birthday show` | Show only your saved birthday; private reply |
@@ -199,7 +199,7 @@ Roles        Admin · Staff · Member
 ### Large playlists and the queue
 
 - **Playback capacity: 2,000 songs per music session**, including the current song. Imports share that capacity; excess entries are reported as omitted.
-- **Visible preview: up to 99 upcoming songs**, ten per `/queue page:<number>`. The footer shows the real queued count. Songs beyond the preview remain queued and play normally.
+- **Visible preview: up to 99 upcoming songs**, ten per page. Use the First/Previous/Next/Last arrows, or `/queue page:<number>`. Each view belongs to the member who opened it; other members can open their own `/queue`. The footer shows the real queued count. Songs beyond the preview remain queued and play normally.
 - **First song before the full import:** supported public Spotify and YouTube playlist formats expose one starting song, which plays while the remaining list loads in the background. A watch link with a playlist starts from its selected video. If early discovery cannot read the source format, the compatibility fallback waits for the full source response.
 - **Lazy matching:** storing a title in the queue does not mean searching for its audio immediately. Spotify songs are matched to playable YouTube audio as needed, with only two upcoming matches prepared ahead. A 2,000-song queue does not trigger 2,000 playback searches at once. This two-song look-ahead does not limit what the queue can display.
 - Source metadata and queue capacity are different: if a provider returns only part of a playlist, the bot cannot infer the missing entries. Raising capacity does not establish source completeness.
@@ -213,11 +213,14 @@ The released Lavalink configuration allows twenty YouTube playlist metadata page
 
 | Button | Who can use it |
 |---|---|
-| ⏸️ Pause / ▶️ Resume · 🔀 Shuffle · 🔉🔊 Volume · 📜 Queue | Anyone in that voice channel |
-| ⏭️ Vote skip · ⏹️ Vote stop | Needs **more than half** of the people in the channel. Staff can skip or stop instantly. |
+| 🔀 Shuffle | Anyone in that voice channel |
+| 📜 Queue | Opens a private queue view with page arrows; browsing does not change playback |
+| ⏮️ Vote go back · ⏭️ Vote skip · ⏹️ Vote stop | Needs **more than half** of the people in the channel. Staff can act instantly. |
 
 - You must be in the voice channel to control the music. One bot plays in one voice channel at a time.
 - The bot leaves after 2 minutes with nothing playing or nobody listening.
+- **Go back** replays the previous successfully played song and puts the interrupted song next, preserving the rest of the queue. The button is disabled until there is history. History is held for this music session (up to 2,000 previous entries) and resets on stop/restart. Replaying history does not consume a new playlist-import slot.
+- Pause/resume commands and pause/volume buttons are removed. Old posted controls refuse those actions too. Volume remains configured by the VPS's `DEFAULT_VOLUME` setting.
 
 **Spotify links:** the bot reads public Spotify embed metadata and finds audio on YouTube Music/YouTube; it does not stream audio from Spotify. No Spotify account is configured. Private/inaccessible lists and changes to public embed formats can stop imports. Public embeds can expose fewer tracks than the original list; there is no promise that every Spotify playlist is imported completely. Matching uses title, artist and duration but can still choose the wrong recording.
 
