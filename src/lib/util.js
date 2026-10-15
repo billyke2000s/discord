@@ -5,7 +5,12 @@ const { getSettings } = require('./db');
 // server owner inside the bot: /setup rebuild, moderating anyone below the bot, controlling any temp VC
 // and any music. Discord still decides who can SEE a command, so bot admins also need a role with
 // the command's permission (e.g. Administrator) in the server.
-const BOT_ADMINS = new Set(String(process.env.BOT_ADMIN_IDS || '').split(',').map((s) => s.trim()).filter(Boolean));
+const BOT_ADMINS = new Set(
+  String(process.env.BOT_ADMIN_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 function isBotAdmin(userId) {
   return BOT_ADMINS.has(userId);
 }
@@ -49,8 +54,12 @@ function canModerate(actor, target) {
 function fmtDuration(ms) {
   if (!ms || ms < 0) return '0:00';
   const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = s % 60;
+  return h
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`;
 }
 
 // "10m", "2h", "1d", "30s" -> ms. Returns null if invalid.

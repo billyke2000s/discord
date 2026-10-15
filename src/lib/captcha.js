@@ -17,7 +17,8 @@ function randomCode(len = 5) {
 
 function render(code) {
   if (!createCanvas) ({ createCanvas } = require('@napi-rs/canvas'));
-  const w = 260, h = 90;
+  const w = 260,
+    h = 90;
   const c = createCanvas(w, h);
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#2b2d31';
@@ -29,7 +30,14 @@ function render(code) {
     ctx.lineWidth = 1 + Math.random() * 2;
     ctx.beginPath();
     ctx.moveTo(Math.random() * w, Math.random() * h);
-    ctx.bezierCurveTo(Math.random() * w, Math.random() * h, Math.random() * w, Math.random() * h, Math.random() * w, Math.random() * h);
+    ctx.bezierCurveTo(
+      Math.random() * w,
+      Math.random() * h,
+      Math.random() * w,
+      Math.random() * h,
+      Math.random() * w,
+      Math.random() * h,
+    );
     ctx.stroke();
   }
   // characters, each rotated and offset
@@ -63,10 +71,19 @@ function newChallenge(guildId, userId) {
 function check(guildId, userId, answer) {
   const key = `${guildId}:${userId}`;
   const ch = challenges.get(key);
-  if (!ch || ch.expires < Date.now()) { challenges.delete(key); return 'expired'; }
-  if (String(answer).trim().toUpperCase() === ch.code) { challenges.delete(key); return 'ok'; }
+  if (!ch || ch.expires < Date.now()) {
+    challenges.delete(key);
+    return 'expired';
+  }
+  if (String(answer).trim().toUpperCase() === ch.code) {
+    challenges.delete(key);
+    return 'ok';
+  }
   ch.attempts++;
-  if (ch.attempts >= MAX_ATTEMPTS) { challenges.delete(key); return 'locked'; }
+  if (ch.attempts >= MAX_ATTEMPTS) {
+    challenges.delete(key);
+    return 'locked';
+  }
   return 'wrong';
 }
 

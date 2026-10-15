@@ -4,6 +4,7 @@ const { db } = require('../lib/db');
 const { embed, truncate, isBotAdmin } = require('../lib/util');
 
 const getVc = db.prepare('SELECT * FROM temp_vcs WHERE channel_id = ?');
+const creating = new Set(); // guildId:userId while their channel is being created (stops quick rejoins making two)
 const setOwner = db.prepare('UPDATE temp_vcs SET owner_id = ? WHERE channel_id = ?');
 
 // Returns { channel, row } if the user is in a temp VC, else replies with an error and returns null.
@@ -11,35 +12,63 @@ async function ownedChannel(interaction) {
   const channel = interaction.member.voice.channel;
   const row = channel && getVc.get(channel.id);
   if (!row) {
-    await interaction.reply({ content: 'You need to be in a channel made by the join-to-create lobby.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: 'You need to be in a channel made by the join-to-create lobby.',
+      flags: MessageFlags.Ephemeral,
+    });
     return null;
   }
-  const override = isBotAdmin(interaction.user.id) || interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
+  const override =
+    isBotAdmin(interaction.user.id) || interaction.member.permissions.has(PermissionFlagsBits.ManageChannels);
   if (!override && row.owner_id !== interaction.user.id) {
-    await interaction.reply({ content: `Only the owner (<@${row.owner_id}>) can do that.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `Only the owner (<@${row.owner_id}>) can do that.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return null;
   }
   return { channel, row };
 }
 
 const vc = {
-  data: new SlashCommandBuilder().setName('vc').setDescription('Control your own voice channel')
+  data: new SlashCommandBuilder()
+    .setName('vc')
+    .setDescription('Control your own voice channel')
     .addSubcommand((s) => s.setName('lock').setDescription('Stop new people joining'))
     .addSubcommand((s) => s.setName('unlock').setDescription('Let people join again'))
-    .addSubcommand((s) => s.setName('limit').setDescription('Set user limit (0 = none)')
-      .addIntegerOption((o) => o.setName('number').setDescription('0-99').setMinValue(0).setMaxValue(99).setRequired(true)))
-    .addSubcommand((s) => s.setName('rename').setDescription('Rename the channel (Discord allows 2 renames per 10 min)')
-      .addStringOption((o) => o.setName('name').setDescription('New name').setMaxLength(100).setRequired(true)))
-    .addSubcommand((s) => s.setName('kick').setDescription('Kick someone out and block them from rejoining')
-      .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)))
-    .addSubcommand((s) => s.setName('transfer').setDescription('Give ownership to someone in the channel')
-      .addUserOption((o) => o.setName('user').setDescription('New owner').setRequired(true))),
+    .addSubcommand((s) =>
+      s
+        .setName('limit')
+        .setDescription('Set user limit (0 = none)')
+        .addIntegerOption((o) =>
+          o.setName('number').setDescription('0-99').setMinValue(0).setMaxValue(99).setRequired(true),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName('rename')
+        .setDescription('Rename the channel (Discord allows 2 renames per 10 min)')
+        .addStringOption((o) => o.setName('name').setDescription('New name').setMaxLength(100).setRequired(true)),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName('kick')
+        .setDescription('Kick someone out and block them from rejoining')
+        .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true)),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName('transfer')
+        .setDescription('Give ownership to someone in the channel')
+        .addUserOption((o) => o.setName('user').setDescription('New owner').setRequired(true)),
+    ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const everyone = interaction.guild.roles.everyone;
 
-    const r = await ownedChannel(interaction); if (!r) return;
+    const r = await ownedChannel(interaction);
+    if (!r) return;
     const { channel } = r;
 
     try {
@@ -55,7 +84,9 @@ const vc = {
         case 'limit': {
           const n = interaction.options.getInteger('number', true);
           await channel.setUserLimit(n);
-          return interaction.reply({ embeds: [embed('ok').setDescription(n ? `Limit set to ${n}.` : 'Limit removed.')] });
+          return interaction.reply({
+            embeds: [embed('ok').setDescription(n ? `Limit set to ${n}.` : 'Limit removed.')],
+          });
         }
         case 'rename': {
           const name = interaction.options.getString('name', true);
@@ -65,13 +96,16 @@ const vc = {
             channel.setName(name).then(() => true),
             new Promise((res) => setTimeout(() => res(false), 5000)),
           ]);
-          return interaction.editReply(done
-            ? `Renamed to **${truncate(name, 100)}**.`
-            : 'Discord is rate-limiting renames (max 2 per 10 minutes). It will apply when the limit clears.');
+          return interaction.editReply(
+            done
+              ? `Renamed to **${truncate(name, 100)}**.`
+              : 'Discord is rate-limiting renames (max 2 per 10 minutes). It will apply when the limit clears.',
+          );
         }
         case 'kick': {
           const u = interaction.options.getUser('user', true);
-          if (u.id === interaction.user.id) return interaction.reply({ content: 'You can’t kick yourself.', flags: MessageFlags.Ephemeral });
+          if (u.id === interaction.user.id)
+            return interaction.reply({ content: 'You can’t kick yourself.', flags: MessageFlags.Ephemeral });
           const target = await interaction.guild.members.fetch(u.id).catch(() => null);
           if (target?.permissions.has(PermissionFlagsBits.MoveMembers))
             return interaction.reply({ content: 'You can’t kick a moderator.', flags: MessageFlags.Ephemeral });
@@ -81,7 +115,8 @@ const vc = {
         }
         case 'transfer': {
           const u = interaction.options.getUser('user', true);
-          if (!channel.members.has(u.id)) return interaction.reply({ content: 'They need to be in the channel.', flags: MessageFlags.Ephemeral });
+          if (!channel.members.has(u.id))
+            return interaction.reply({ content: 'They need to be in the channel.', flags: MessageFlags.Ephemeral });
           if (u.bot) return interaction.reply({ content: 'Bots can’t own channels.', flags: MessageFlags.Ephemeral });
           setOwner.run(u.id, channel.id);
           await channel.permissionOverwrites.edit(u.id, { Connect: true, ManageChannels: true, MoveMembers: true });
@@ -91,7 +126,9 @@ const vc = {
       }
     } catch (e) {
       const msg = `Failed: ${e.message}. Check I have **Manage Channels** and **Move Members** in this category.`;
-      return interaction.deferred || interaction.replied ? interaction.editReply(msg) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+      return interaction.deferred || interaction.replied
+        ? interaction.editReply(msg)
+        : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
   },
 };
@@ -106,9 +143,15 @@ async function handleVoiceState(oldState, newState, settings) {
     const member = newState.member;
     const lobby = newState.channel;
     // one temp channel per person: if they already own one, move them there
-    const existing = db.prepare('SELECT channel_id FROM temp_vcs WHERE guild_id = ? AND owner_id = ?').all(guild.id, member.id)
-      .map((r) => guild.channels.cache.get(r.channel_id)).find(Boolean);
+    const existing = db
+      .prepare('SELECT channel_id FROM temp_vcs WHERE guild_id = ? AND owner_id = ?')
+      .all(guild.id, member.id)
+      .map((r) => guild.channels.cache.get(r.channel_id))
+      .find(Boolean);
     if (existing) return member.voice.setChannel(existing).catch(() => {});
+    const key = `${guild.id}:${member.id}`;
+    if (creating.has(key)) return;
+    creating.add(key);
 
     try {
       const ch = await guild.channels.create({
@@ -117,10 +160,19 @@ async function handleVoiceState(oldState, newState, settings) {
         parent: categoryId || lobby.parentId || undefined,
         userLimit: defaultLimit || 0,
         bitrate: Math.min(lobby.bitrate, guild.maximumBitrate),
-        permissionOverwrites: buildOverwrites(categoryId ? guild.channels.cache.get(categoryId) : lobby.parent, member.id, guild),
+        permissionOverwrites: buildOverwrites(
+          categoryId ? guild.channels.cache.get(categoryId) : lobby.parent,
+          member.id,
+          guild,
+        ),
         reason: `Join-to-create for ${member.user.tag}`,
       });
-      db.prepare('INSERT INTO temp_vcs (channel_id, guild_id, owner_id, created_at) VALUES (?, ?, ?, ?)').run(ch.id, guild.id, member.id, Date.now());
+      db.prepare('INSERT INTO temp_vcs (channel_id, guild_id, owner_id, created_at) VALUES (?, ?, ?, ?)').run(
+        ch.id,
+        guild.id,
+        member.id,
+        Date.now(),
+      );
       await member.voice.setChannel(ch).catch(async () => {
         // they left the lobby before we could move them
         await ch.delete().catch(() => {});
@@ -128,6 +180,8 @@ async function handleVoiceState(oldState, newState, settings) {
       });
     } catch (e) {
       console.error('[jtc] create failed:', e.message);
+    } finally {
+      creating.delete(key);
     }
   }
 

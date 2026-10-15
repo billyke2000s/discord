@@ -20,7 +20,9 @@ const rest = new REST().setToken(DISCORD_TOKEN);
     return;
   }
   const res = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commandBody(GUILD_ID) });
-  console.log(`Registered ${res.length} commands to server ${GUILD_ID}${rebuildLocked(GUILD_ID) ? ' (/setup rebuild hidden: locked)' : ''}.`);
+  console.log(
+    `Registered ${res.length} commands to server ${GUILD_ID}${rebuildLocked(GUILD_ID) ? ' (/setup rebuild hidden: locked)' : ''}.`,
+  );
 })().catch((e) => {
   console.error(e);
   process.exit(1);

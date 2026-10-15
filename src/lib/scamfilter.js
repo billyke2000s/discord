@@ -12,17 +12,65 @@ const { getSettings } = require('./db');
 const { embed, log, truncate, isBotAdmin } = require('./util');
 
 const SOURCES = [
-  { url: 'https://raw.githubusercontent.com/nikolaischunk/discord-phishing-links/main/domain-list.json', parse: (t) => JSON.parse(t).domains },
-  { url: 'https://raw.githubusercontent.com/Discord-AntiScam/scam-links/main/list.txt', parse: (t) => t.split(/\r?\n/) },
+  {
+    url: 'https://raw.githubusercontent.com/nikolaischunk/discord-phishing-links/main/domain-list.json',
+    parse: (t) => JSON.parse(t).domains,
+  },
+  {
+    url: 'https://raw.githubusercontent.com/Discord-AntiScam/scam-links/main/list.txt',
+    parse: (t) => t.split(/\r?\n/),
+  },
 ];
 // Never flag these even if a list gets them wrong.
 const SAFE = new Set([
-  'discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net', 'discord.media', 'youtube.com', 'youtu.be', 'twitch.tv', 'github.com',
-  'google.com', 'steamcommunity.com', 'steampowered.com', 'store.steampowered.com', 'twitter.com', 'x.com', 'reddit.com',
-  'tenor.com', 'giphy.com', 'imgur.com', 'spotify.com', 'ea.com', 'nintendo.com', 'medal.tv', 'instagram.com', 'tiktok.com',
-  'youtube-nocookie.com', 'googleusercontent.com', 'gstatic.com', 'microsoft.com', 'xbox.com', 'playstation.com', 'epicgames.com',
-  'apple.com', 'amazon.com', 'amazon.co.uk', 'wikipedia.org', 'facebook.com', 'whatsapp.com', 'roblox.com', 'riotgames.com',
-  'twitch.com', 'cloudflare.com', 'paypal.com', 'ebay.com', 'ebay.co.uk', 'bsky.app', 'soundcloud.com', 'tracker.gg',
+  'discord.com',
+  'discord.gg',
+  'discordapp.com',
+  'discordapp.net',
+  'discord.media',
+  'youtube.com',
+  'youtu.be',
+  'twitch.tv',
+  'github.com',
+  'google.com',
+  'steamcommunity.com',
+  'steampowered.com',
+  'store.steampowered.com',
+  'twitter.com',
+  'x.com',
+  'reddit.com',
+  'tenor.com',
+  'giphy.com',
+  'imgur.com',
+  'spotify.com',
+  'ea.com',
+  'nintendo.com',
+  'medal.tv',
+  'instagram.com',
+  'tiktok.com',
+  'youtube-nocookie.com',
+  'googleusercontent.com',
+  'gstatic.com',
+  'microsoft.com',
+  'xbox.com',
+  'playstation.com',
+  'epicgames.com',
+  'apple.com',
+  'amazon.com',
+  'amazon.co.uk',
+  'wikipedia.org',
+  'facebook.com',
+  'whatsapp.com',
+  'roblox.com',
+  'riotgames.com',
+  'twitch.com',
+  'cloudflare.com',
+  'paypal.com',
+  'ebay.com',
+  'ebay.co.uk',
+  'bsky.app',
+  'soundcloud.com',
+  'tracker.gg',
 ]);
 const REFRESH_MS = 6 * 3600 * 1000;
 const cacheFile = path.join(process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data'), 'scam-domains.txt');
@@ -61,7 +109,8 @@ async function refresh() {
       const list = src.parse(await res.text());
       if (!Array.isArray(list)) throw new Error('unexpected format');
       // A list that suddenly shrinks to a fraction of its size is probably broken upstream: keep the old one.
-      if (lastGood[i] && list.length < lastGood[i].length * 0.3) throw new Error(`list shrank from ${lastGood[i].length} to ${list.length}, ignoring this update`);
+      if (lastGood[i] && list.length < lastGood[i].length * 0.3)
+        throw new Error(`list shrank from ${lastGood[i].length} to ${list.length}, ignoring this update`);
       lastGood[i] = list;
       ok++;
     } catch (e) {
@@ -71,8 +120,12 @@ async function refresh() {
   if (lastGood.some(Boolean)) {
     setDomains(...lastGood.filter(Boolean));
     lastLoaded = Date.now();
-    try { fs.writeFileSync(cacheFile, [...domains].map(([d, n]) => `${d}\t${n}`).join('\n')); } catch {}
-    console.log(`[scamfilter] ${domains.size} scam domains (${[...domains.values()].filter((n) => n >= 2).length} on both lists) from ${ok}/${SOURCES.length} lists`);
+    try {
+      fs.writeFileSync(cacheFile, [...domains].map(([d, n]) => `${d}\t${n}`).join('\n'));
+    } catch {}
+    console.log(
+      `[scamfilter] ${domains.size} scam domains (${[...domains.values()].filter((n) => n >= 2).length} on both lists) from ${ok}/${SOURCES.length} lists`,
+    );
   } else if (!domains.size) {
     // offline: fall back to last saved copy
     try {
@@ -137,24 +190,41 @@ async function check(msg) {
   const staff = isBotAdmin(msg.author.id) || msg.member.permissions.has(P.ManageMessages);
   const history = remember(msg);
 
-  let reason = null, detail = '', punish = true;
+  let reason = null,
+    detail = '',
+    punish = true;
   let weak = null;
   for (const h of hosts(text)) {
     const hit = isScamHost(h, cfg.allow);
-    if (hit && hit.lists >= 2) { reason = 'Known scam link'; detail = hit.domain; weak = null; break; }
+    if (hit && hit.lists >= 2) {
+      reason = 'Known scam link';
+      detail = hit.domain;
+      weak = null;
+      break;
+    }
     if (hit && !weak) weak = hit;
   }
   if (!reason && weak) {
     // Only one list has it: remove the message but don't punish, in case that list is wrong.
-    reason = 'Possible scam link (on one scam list)'; detail = weak.domain; punish = false;
+    reason = 'Possible scam link (on one scam list)';
+    detail = weak.domain;
+    punish = false;
   }
-  if ((!reason || !punish) && !staff && cfg.blockMassPingLinks && hasLink(msg.content) && /@(everyone|here)/.test(msg.content)) {
-    reason = '@everyone/@here with a link (hacked-account pattern)'; punish = true;
+  if (
+    (!reason || !punish) &&
+    !staff &&
+    cfg.blockMassPingLinks &&
+    hasLink(msg.content) &&
+    /@(everyone|here)/.test(msg.content)
+  ) {
+    reason = '@everyone/@here with a link (hacked-account pattern)';
+    punish = true;
   }
   if ((!reason || !punish) && !staff && cfg.crossChannelSpam && msg.content.length >= 10) {
     const same = history.filter((x) => x.content === msg.content);
     if (new Set(same.map((x) => x.channelId)).size >= cfg.crossChannelSpam) {
-      reason = `Same message in ${cfg.crossChannelSpam}+ channels within 30s (hacked-account pattern)`; punish = true;
+      reason = `Same message in ${cfg.crossChannelSpam}+ channels within 30s (hacked-account pattern)`;
+      punish = true;
     }
   }
   if (!reason) return false;
@@ -165,27 +235,51 @@ async function check(msg) {
   for (const x of history) {
     if (x.id === msg.id || x.content !== msg.content) continue;
     const ch = msg.guild.channels.cache.get(x.channelId);
-    await ch?.messages.delete(x.id).then(() => removed++).catch(() => {});
+    await ch?.messages
+      .delete(x.id)
+      .then(() => removed++)
+      .catch(() => {});
   }
 
   let action = punish ? 'Deleted' : 'Deleted (not punished: only one list has this domain)';
   if (punish && cfg.timeoutHours && msg.member.moderatable) {
-    await msg.member.timeout(cfg.timeoutHours * 3600_000, `Scam filter: ${reason}`)
-      .then(() => { action = `Deleted + timed out ${cfg.timeoutHours}h`; }).catch(() => {});
+    await msg.member
+      .timeout(cfg.timeoutHours * 3600_000, `Scam filter: ${reason}`)
+      .then(() => {
+        action = `Deleted + timed out ${cfg.timeoutHours}h`;
+      })
+      .catch(() => {});
   }
-  await msg.author.send(punish
-    ? `Your message in **${msg.guild.name}** was removed by the scam filter (${reason}).\n` +
-      'If you didn’t send it, **your account is probably hacked**: change your password, turn on 2FA, and in Discord Settings → Devices log out all other devices. ' +
-      'Then ask a moderator to remove your timeout.'
-    : `Your message in **${msg.guild.name}** was removed because it contained a link on a scam list (\`${detail}\`). If it's a real site, ask a moderator.`,
-  ).catch(() => {});
+  await msg.author
+    .send(
+      punish
+        ? `Your message in **${msg.guild.name}** was removed by the scam filter (${reason}).\n` +
+            'If you didn’t send it, **your account is probably hacked**: change your password, turn on 2FA, and in Discord Settings → Devices log out all other devices. ' +
+            'Then ask a moderator to remove your timeout.'
+        : `Your message in **${msg.guild.name}** was removed because it contained a link on a scam list (\`${detail}\`). If it's a real site, ask a moderator.`,
+    )
+    .catch(() => {});
 
   // Defang the link so nobody clicks it from the log
-  const safeText = truncate(msg.content, 900).replace(/https?:\/\//gi, 'hxxp://').replace(/\./g, '[.]');
-  await log(msg.guild, embed('bad').setTitle('🚫 Scam filter')
-    .setDescription(`**User:** ${msg.author} (${msg.author.tag})\n**Channel:** ${msg.channel}\n**Why:** ${reason}${detail ? ` (\`${detail}\`)` : ''}\n**Action:** ${action}, ${removed} message(s) removed\n\n**Message (links disabled):**\n${safeText || '*(embed only)*'}`)
-    .setFooter({ text: `User ID ${msg.author.id} · if this is wrong: /setup scamfilter allow:<domain>` }));
+  const safeText = truncate(msg.content, 900)
+    .replace(/https?:\/\//gi, 'hxxp://')
+    .replace(/\./g, '[.]');
+  await log(
+    msg.guild,
+    embed('bad')
+      .setTitle('🚫 Scam filter')
+      .setDescription(
+        `**User:** ${msg.author} (${msg.author.tag})\n**Channel:** ${msg.channel}\n**Why:** ${reason}${detail ? ` (\`${detail}\`)` : ''}\n**Action:** ${action}, ${removed} message(s) removed\n\n**Message (links disabled):**\n${safeText || '*(embed only)*'}`,
+      )
+      .setFooter({ text: `User ID ${msg.author.id} · if this is wrong: /setup scamfilter allow:<domain>` }),
+  );
   return true;
 }
 
-module.exports = { start, check, stats: () => ({ size: domains.size, lastLoaded }), _setDomains: setDomains /* used by tests */, _loadCache: loadCache };
+module.exports = {
+  start,
+  check,
+  stats: () => ({ size: domains.size, lastLoaded }),
+  _setDomains: setDomains /* used by tests */,
+  _loadCache: loadCache,
+};

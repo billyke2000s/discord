@@ -20,7 +20,7 @@ lavalink:
       twitch: true
       vimeo: true
       nico: false
-      http: true
+      http: false           # off: otherwise any member could make the VPS fetch any web address via /play
       local: false
     filters:
       volume: true
