@@ -125,4 +125,4 @@ async function toggle(interaction, roleId) {
   await interaction.reply({ content: has ? `Removed ${role}.` : `Added ${role}.`, flags: MessageFlags.Ephemeral });
 }
 
-module.exports = { commands: [buttonroles], prefixComponents: { 'role:': toggle } };
+module.exports = { commands: [buttonroles], prefixComponents: { 'role:': toggle }, blockedReason };

@@ -48,7 +48,7 @@ const client = new Client({
 });
 
 // Shoukaku must be created before login so it can catch the READY packet.
-client.music = new MusicManager(client);
+client.music = new MusicManager(client, { store: require('./lib/music-store') });
 const stopHealth = startHealth(client);
 registerEvents(client);
 
@@ -63,6 +63,8 @@ client.once(Events.ClientReady, async (c) => {
     await syncGuild(g).catch((e) => console.error(`[commands] ${g.name}:`, e.message));
   }
   await voice.sweep(client).catch((e) => console.error('[sweep]', e));
+  // Music that was playing before the restart carries on (if the music server is already connected).
+  client.music.restoreAll().catch((e) => console.error('[music resume]', e.message));
   scamfilter.start();
   const locked = antiRaid.restore((gid) => {
     const g = client.guilds.cache.get(gid);
@@ -121,7 +123,8 @@ process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e)
 async function shutdown() {
   stopHealth();
   console.log('Shutting down...');
-  for (const q of [...client.music.queues.values()]) await q.destroy();
+  // Save and leave rather than stop, so music carries on after the restart.
+  for (const q of [...client.music.queues.values()]) await q.suspend();
   await client.destroy();
   try {
     require('./lib/db').db.close();

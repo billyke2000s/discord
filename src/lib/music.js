@@ -7,6 +7,9 @@ const { randomBytes } = require('node:crypto');
 const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlist');
 const { AudioMonitor } = require('./audio-monitor');
 
+const SAVE_EVERY_MS = 5_000; // save queue changes within 5 s
+const SAVE_POSITION_MS = 30_000; // and the song position at least every 30 s while playing
+const RESUME_MAX_AGE_MS = 30 * 60_000; // don't resume a session saved more than 30 minutes ago
 const IDLE_LEAVE_MS = 2 * 60 * 1000; // leave after 2 min with empty queue or empty channel
 const MAX_QUEUE = 2000; // playback capacity, independent of the visible queue preview
 const PANEL_REFRESH_MS = 5_000; // how often the panel's time + progress bar update (1 edit / 5 s)
@@ -195,6 +198,12 @@ class GuildQueue {
     this.monitor = new AudioMonitor(guildId, manager.recordAudio);
     this.monitorTimer = setInterval(() => this.monitor.check(this.player.node?.stats), 5000);
     this.monitorTimer.unref();
+    // Persistence: `changes` counts queue edits; persist() writes when it moved, or every 30 s for the position.
+    this.changes = 0;
+    this.savedChanges = -1;
+    this.savedAt = 0;
+    this.persistTimer = setInterval(() => this.persist(), SAVE_EVERY_MS);
+    this.persistTimer.unref?.();
 
     player.on('update', (d) => {
       this.monitor.update(d?.state);
@@ -204,7 +213,7 @@ class GuildQueue {
       if (!this.matchesPlaybackEvent(event)) return;
       this.monitor.start();
       this.monitor.pause(this.player.paused);
-      this.clock = { base: 0, at: Date.now() };
+      this.clock = { base: this.playback?.startAt || 0, at: Date.now() };
       this.votes.skip.clear();
       this.votes.stop.clear();
       this.votes.previous.clear();
@@ -326,7 +335,12 @@ class GuildQueue {
     const t = this.current;
 
     if (state !== 'playing' || !t) {
-      const text = state === 'stopped' ? '⏹ Music stopped.' : '✅ Queue finished. Use `/play` to add more.';
+      const text =
+        {
+          stopped: '⏹ Music stopped.',
+          restarting: '⏸ The bot is restarting. Music will carry on from here in a moment.',
+          reconnecting: "⏸ Lost the music server. Music will carry on from here when it's back.",
+        }[state] || '✅ Queue finished. Use `/play` to add more.';
       return { embeds: [embed(BRAND_COLOR).setAuthor(brand).setDescription(text)], components: [] };
     }
 
@@ -455,6 +469,7 @@ class GuildQueue {
       MAX_QUEUE - this.tracks.filter((t) => !t.replay).length - (this.current && !this.current.replay ? 1 : 0);
     const added = tracks.slice(0, Math.max(0, room));
     this.tracks.push(...added);
+    this.changes++;
     this.prefetch();
     if (this.current) this.refreshPanel(); // "Up next" changed
     return added.length;
@@ -467,6 +482,67 @@ class GuildQueue {
       const j = Math.floor(Math.random() * (i + 1));
       [a[i], a[j]] = [a[j], a[i]];
     }
+    this.changes++;
+  }
+
+  // ---------- persistence ----------
+  // A plain copy of one queue entry: enough to play it again after a restart.
+  static entry(t) {
+    if (!t) return null;
+    const { encoded, search, album, requester, playedFrom, playbackInfo, replay } = t;
+    const { title, author, length, uri, isStream, artworkUrl, identifier, sourceName } = t.info || {};
+    return {
+      encoded: encoded || null,
+      search,
+      album,
+      requester,
+      playedFrom,
+      playbackInfo,
+      replay,
+      info: { title, author, length, uri, isStream, artworkUrl, identifier, sourceName },
+    };
+  }
+
+  snapshot() {
+    return {
+      v: 1,
+      voiceChannelId: this.voiceChannelId,
+      textChannelId: this.textChannel?.id || null,
+      fallbackChannelId: this.fallbackChannel?.id || null,
+      volume: this.volume,
+      current: GuildQueue.entry(this.current),
+      tracks: this.tracks.map(GuildQueue.entry),
+      savedAt: Date.now(),
+    };
+  }
+
+  // Save if the queue changed, or the position is stale. force = save now (shutdown).
+  persist(force = false) {
+    const store = this.manager.store;
+    if (!store || this.destroyed || this.restoring) return;
+    const now = Date.now();
+    const position = this.current && !this.current.info?.isStream ? this.position() : 0;
+    try {
+      if (force || this.changes !== this.savedChanges) {
+        // Queue finished: nothing to resume, so a restart now must not bring old songs back.
+        if (!this.current && !this.tracks.length) store.remove(this.guildId);
+        else store.save(this.guildId, this.snapshot(), position);
+        this.savedChanges = this.changes;
+        this.savedAt = now;
+      } else if (this.current && now - this.savedAt >= SAVE_POSITION_MS) {
+        store.savePosition(this.guildId, position);
+        this.savedAt = now;
+      }
+    } catch (err) {
+      console.error('[music] could not save the queue:', err.message);
+    }
+  }
+
+  // Leave without forgetting: used for bot shutdown and losing the music server. Music resumes later.
+  async suspend(reason = 'restart') {
+    if (this.destroyed) return;
+    this.persist(true);
+    await this.destroy({ keep: true, reason });
   }
 
   async setVolume(v) {
@@ -595,6 +671,7 @@ class GuildQueue {
     this.playedCurrent = false;
     for (;;) {
       this.current = this.tracks.shift() || null;
+      this.changes++;
       if (!this.current) {
         this.endPanel('finished');
         if (!this.imports.size) this.scheduleIdleLeave();
@@ -604,10 +681,14 @@ class GuildQueue {
       if (track.encoded) {
         this.clearIdle();
         this.playback = { id: randomBytes(12).toString('hex'), entry: track };
+        // A song resumed after a restart continues from where it was.
+        const resumeAt = track.resumeAt || 0;
+        delete track.resumeAt;
+        this.playback.startAt = resumeAt;
         try {
           await this.player.playTrack({
             track: { encoded: track.encoded, userData: { serverBotPlaybackId: this.playback.id } },
-            position: 0,
+            position: resumeAt,
             endTime: null,
             paused: false,
           });
@@ -664,6 +745,7 @@ class GuildQueue {
       this.tracks.unshift(target);
       this.tracks.unshift({ ...back, replay: true });
       this.playedCurrent = false;
+      this.changes++;
       await this.next();
       return true;
     })().finally(() => {
@@ -686,24 +768,36 @@ class GuildQueue {
     this.idleTimer = null;
   }
 
-  async destroy() {
+  // keep = true leaves the saved session in place so it can resume (see suspend()).
+  async destroy({ keep = false, reason } = {}) {
     if (this.destroyed) return;
     this.destroyed = true;
     clearInterval(this.monitorTimer);
+    clearInterval(this.persistTimer);
     this.monitor.stop('session-destroyed');
     this.revision++;
     this.tracks.length = 0;
     this.history.length = 0;
     this.clearIdle();
     this.manager.queues.delete(this.guildId);
-    await this.endPanel('stopped');
+    if (!keep) {
+      try {
+        this.manager.store?.remove(this.guildId);
+      } catch (err) {
+        console.error('[music] could not clear the saved queue:', err.message);
+      }
+    }
+    await this.endPanel(keep ? (reason === 'music-server' ? 'reconnecting' : 'restarting') : 'stopped');
     await this.manager.shoukaku.leaveVoiceChannel(this.guildId).catch(() => {});
   }
 }
 
 class MusicManager {
-  constructor(client) {
+  constructor(client, { store } = {}) {
     this.client = client;
+    // Saved sessions (src/lib/music-store.js). Passed in so tests and tools can run without a database.
+    this.store = store || null;
+    this.restoring = null;
     this.queues = new Map();
     this.creating = new Map(); // guildId -> promise, so two quick /plays don't join twice
     this.playRequests = new Map();
@@ -720,7 +814,11 @@ class MusicManager {
       reconnectTries: 10,
       reconnectInterval: 5,
     });
-    this.shoukaku.on('ready', (name) => console.log(`[lavalink] node ${name} ready`));
+    this.shoukaku.on('ready', (name) => {
+      console.log(`[lavalink] node ${name} ready`);
+      if (this.client.isReady?.())
+        this.restoreAll().catch((err) => console.error('[music] resume failed:', err.message));
+    });
     this.shoukaku.on('error', (name, err) => console.error(`[lavalink] node ${name} error:`, err?.message || err));
     this.shoukaku.on('close', (name, code) => console.warn(`[lavalink] node ${name} closed (${code})`));
 
@@ -733,8 +831,9 @@ class MusicManager {
 
   ensureNode() {
     if (!this.client.isReady?.() || this.shoukaku.nodes.has(this.nodeOptions.name)) return false;
-    if (this.queues.size) console.warn(`[lavalink] lost the music server, ending ${this.queues.size} music session(s)`);
-    for (const q of [...this.queues.values()]) q.destroy();
+    if (this.queues.size)
+      console.warn(`[lavalink] lost the music server, pausing ${this.queues.size} music session(s)`);
+    for (const q of [...this.queues.values()]) q.suspend('music-server');
     console.warn('[lavalink] not connected: trying again');
     this.shoukaku.addNode(this.nodeOptions);
     return true;
@@ -922,6 +1021,63 @@ class MusicManager {
     })().finally(() => this.creating.delete(guild.id));
     this.creating.set(guild.id, p);
     return p;
+  }
+
+  // Pick saved sessions back up: after a restart, an update, or the music server coming back.
+  // Skips servers already playing, sessions older than 30 minutes, and voice channels nobody is in.
+  restoreAll() {
+    if (!this.store) return Promise.resolve(0);
+    if (this.restoring) return this.restoring;
+    this.restoring = (async () => {
+      let resumed = 0;
+      for (const saved of this.store.all()) {
+        try {
+          if (await this.restoreOne(saved)) resumed++;
+        } catch (err) {
+          console.error(`[music] could not resume in ${saved.guildId}:`, err.message);
+          this.store.remove(saved.guildId);
+        }
+      }
+      if (resumed) console.log(`[music] resumed ${resumed} music session(s)`);
+      return resumed;
+    })().finally(() => {
+      this.restoring = null;
+    });
+    return this.restoring;
+  }
+
+  async restoreOne({ guildId, data, position, updatedAt }) {
+    if (this.queues.has(guildId) || this.creating.has(guildId)) return false;
+    if (!this.shoukaku.getIdealNode()) return false; // try again when the music server is ready
+    const guild = this.client.guilds.cache.get(guildId);
+    const forget = () => {
+      this.store.remove(guildId);
+      return false;
+    };
+    if (!guild || data?.v !== 1 || Date.now() - updatedAt > RESUME_MAX_AGE_MS) return forget();
+    const vc = guild.channels.cache.get(data.voiceChannelId);
+    if (!vc || !vc.members?.some((m) => !m.user.bot)) return forget();
+    const tracks = [data.current, ...(data.tracks || [])].filter((t) => t?.info?.title);
+    if (!tracks.length) return forget();
+    if (data.current && tracks[0] === data.current && position > 0) tracks[0].resumeAt = position;
+    const fallback =
+      guild.channels.cache.get(data.fallbackChannelId) || guild.channels.cache.get(data.textChannelId) || null;
+    const q = await this.create(guild, vc.id, fallback);
+    q.restoring = true;
+    try {
+      if (Number.isFinite(data.volume) && data.volume !== q.volume) await q.setVolume(data.volume);
+      q.tracks.push(...tracks.slice(0, MAX_QUEUE));
+      q.changes++;
+      q.send(
+        embed('grey').setDescription(
+          `▶️ Back after a restart. Carrying on with **${truncate(tracks[0].info.title, 80)}**.`,
+        ),
+      );
+    } finally {
+      q.restoring = false;
+    }
+    await q.start();
+    return true;
   }
 
   // Called from voiceStateUpdate: leave if the bot is alone, and re-count votes when people leave.

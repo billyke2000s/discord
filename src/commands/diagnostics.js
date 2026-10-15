@@ -217,6 +217,7 @@ const diagnostics = {
       chan(s.jtc.lobbyChannel, 'Join-to-create lobby', false);
       if (s.selfPromo.channel) chan(s.selfPromo.channel, 'Self-promo channel', false);
       if (s.suggestions.channel) chan(s.suggestions.channel, 'Suggestions channel', false);
+      if (s.levels?.enabled && s.levels.announce === 'channel') chan(s.levels.announceChannel, 'Level-up channel');
       const setupOk = results.filter((r) => r.group === 'Setup' && r.status === 'ok').length;
       summaries.Setup = `${setupOk} channels and roles in place`;
 
@@ -249,6 +250,8 @@ const diagnostics = {
           `${st.size} scam domains, updated ${scamAgo || 'from the saved copy'}`,
         );
       }
+      const rulesOn = Object.entries(s.automod?.rules || {}).filter(([, r]) => r.enabled).length;
+      add(rulesOn ? 'ok' : 'off', 'Automod', rulesOn ? `${rulesOn} rule(s) on` : 'no rules on');
       if (antiRaid.isLocked(g.id)) add('warn', 'Lockdown', 'ON: new members are kicked when they join');
       else add('ok', 'Lockdown', 'off');
       add(
