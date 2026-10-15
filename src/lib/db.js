@@ -100,6 +100,10 @@ const DEFAULTS = {
     stackRewards: true, // keep lower reward roles (false = only the highest)
     ignoredChannels: [], // no XP in these channels
   },
+  live: {
+    channel: null, // where live and new-video posts go (/live setup)
+    pingRole: null, // role pinged with each post, or null
+  },
   automod: {
     // Every rule starts off. action: 'delete' | 'warn' (delete + warning) | 'timeout' (delete + timeout)
     rules: {

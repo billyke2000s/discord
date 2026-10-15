@@ -35,7 +35,7 @@ const help = {
       });
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
       let admin =
-        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/levels` · `/automod` · `/lockdown` · `/diagnostics` (full check of the bot and VPS, says what to fix; once a minute)';
+        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/levels` · `/automod` · `/live` · `/lockdown` · `/diagnostics` (full check of the bot and VPS, says what to fix; once a minute)';
       if (isOwner(interaction.user, interaction.guild)) {
         const locked = rebuildLocked(interaction.guildId);
         admin += locked
