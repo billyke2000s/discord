@@ -18,6 +18,18 @@ function isStaff(member) {
   return member.id === member.guild.ownerId || isBotAdmin(member.id) || member.permissions.has(P.ModerateMembers);
 }
 
+// Links members may give to /play. Anything else would make the music server fetch an arbitrary
+// address from the VPS (including private addresses), so it is refused before reaching Lavalink.
+// Checked here too because automatic updates replace only the bot, not lavalink/application.yml.
+const LINK_HOSTS = ['youtube.com', 'youtu.be', 'youtube-nocookie.com', 'soundcloud.com', 'twitch.tv', 'vimeo.com', 'bandcamp.com'];
+function isSupportedLink(query) {
+  let url;
+  try { url = new URL(query); } catch { return false; }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port) return false;
+  const host = url.hostname.toLowerCase();
+  return LINK_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 // Embed builders throw on bad URLs; a bad artwork link from a source must never crash the bot.
 const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\/\S+$/i.test(u) ? u : null);
 
@@ -92,7 +104,7 @@ class GuildQueue {
     this.preparing = new WeakMap();
     this.prefetching = false;
     this.volume = Number(process.env.DEFAULT_VOLUME || 60);
-    this.votes = { skip: new Set(), stop: new Set(), previous: new Set() };
+    this.votes = { skip: new Set(), stop: new Set(), previous: new Set(), shuffle: new Set() };
     this.history = [];
     this.playedCurrent = false;
     this.panelMsg = null;
@@ -117,6 +129,7 @@ class GuildQueue {
       this.votes.skip.clear();
       this.votes.stop.clear();
       this.votes.previous.clear();
+      this.votes.shuffle.clear();
       this.postPanel();
     });
     player.on('end', (e) => {
@@ -134,9 +147,11 @@ class GuildQueue {
     });
     player.on('exception', (e) => {
       if(!this.matchesPlaybackEvent(e))return;
-      // Raw source error text may contain signed URLs or credentials; retain event type only.
+      // Raw source error text may contain signed URLs or credentials: keep it out of public chat.
+      // Only the event type is recorded; the error text goes to the private bot log.
       this.monitor.emit('track-exception');
-      this.send(embed('bad').setDescription(`Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**: ${truncate(e.exception?.message || 'unknown error', 200)}. Moving on.`));
+      console.warn('[music] track exception:', truncate(e.exception?.message || 'unknown error', 300));
+      this.send(embed('bad').setDescription(`Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**. Skipping to the next song.`));
       this.advanceAfterEvent(e);
     });
     player.on('closed', () => { this.monitor.emit('voice-closed'); this.destroy(); });
@@ -206,7 +221,13 @@ class GuildQueue {
       this.send(embed('grey').setDescription('⏮ Going back to the previous song by vote.'));
       return this.previous();
     }
-    if (stop.count || skip.count || previous.count) this.refreshPanel();
+    const shuffle = this.voteStatus('shuffle');
+    if (shuffle.count > 0 && shuffle.count >= shuffle.needed && this.tracks.length > 1) {
+      this.send(embed('grey').setDescription('🔀 Queue shuffled by vote.'));
+      this.shuffle();
+      return this.refreshPanel();
+    }
+    if (stop.count || skip.count || previous.count || shuffle.count) this.refreshPanel();
   }
 
   // ---------- panel ----------
@@ -223,7 +244,7 @@ class GuildQueue {
     const len = t.info.length, pos = Math.max(0, Math.min(this.position(), len || 0));
     const time = t.info.isStream ? '🔴 LIVE' : `\`${fmtDuration(pos)}\` ${progressBar(pos, len)} \`${fmtDuration(len)}\``;
     const next = this.tracks.slice(0, 3).map((x, i) => `\`${i + 1}.\` ${truncate(x.info.title, 55)}`).join('\n') || '*Nothing — add songs with `/play`*';
-    const skip = this.voteStatus('skip'), stop = this.voteStatus('stop'), previous = this.voteStatus('previous');
+    const skip = this.voteStatus('skip'), stop = this.voteStatus('stop'), previous = this.voteStatus('previous'), shuffle = this.voteStatus('shuffle');
     const paused = this.player.paused;
     // Spotify songs: show which YouTube upload is really playing, so a wrong match is easy to spot.
     const pf = t.playedFrom, pfUrl = safeUrl(pf?.uri);
@@ -241,13 +262,13 @@ class GuildQueue {
         { name: 'In queue', value: String(this.tracks.length), inline: true },
         { name: 'Up next', value: next },
       )
-      .setFooter({ text: `Back, skip and stop need a majority (${skip.needed} of ${this.listeners().size} listening). Staff can act instantly.` });
+      .setFooter({ text: `Back, skip, stop and shuffle need a majority (${skip.needed} of ${this.listeners().size} listening). Staff can act instantly.` });
 
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('music:previous').setEmoji('⏮️').setLabel(previous.count ? `Back ${previous.count}/${previous.needed}` : 'Vote go back').setStyle(ButtonStyle.Primary).setDisabled(!this.history.length),
       new ButtonBuilder().setCustomId('music:skip').setEmoji('⏭️').setLabel(skip.count ? `Skip ${skip.count}/${skip.needed}` : 'Vote skip').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('music:stop').setEmoji('⏹️').setLabel(stop.count ? `Stop ${stop.count}/${stop.needed}` : 'Vote stop').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('music:shuffle').setEmoji('🔀').setLabel('Shuffle').setStyle(ButtonStyle.Secondary).setDisabled(this.tracks.length < 2),
+      new ButtonBuilder().setCustomId('music:shuffle').setEmoji('🔀').setLabel(shuffle.count ? `Shuffle ${shuffle.count}/${shuffle.needed}` : 'Vote shuffle').setStyle(ButtonStyle.Secondary).setDisabled(this.tracks.length < 2),
       new ButtonBuilder().setCustomId('music:queue').setEmoji('📜').setLabel('Queue').setStyle(ButtonStyle.Secondary),
     );
     return { embeds: [e], components: [row1] };
@@ -303,6 +324,7 @@ class GuildQueue {
   }
 
   shuffle() {
+    this.votes.shuffle.clear();
     const a = this.tracks;
     for (let i = a.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -440,7 +462,8 @@ class GuildQueue {
           return;
         } catch (err) {
           this.monitor.emit('play-request-failed');
-          this.send(embed('bad').setDescription(`Could not play that track: ${truncate(err.message, 200)}. Moving on.`));
+          console.warn('[music] play request failed:', truncate(err.message, 300));
+          this.send(embed('bad').setDescription(`Couldn't start **${truncate(track.info.title, 80)}**. Skipping to the next song.`));
           continue;
         }
       }
@@ -579,6 +602,9 @@ class MusicManager {
       return sp.type === 'track' ? { tracks } : { tracks, playlist: sp.name };
     }
     const isUrl = /^https?:\/\//i.test(query);
+    if (isUrl && !isSupportedLink(query)) {
+      throw new Error('only YouTube, Spotify, SoundCloud, Twitch, Vimeo and Bandcamp links are supported');
+    }
     const res = await node.rest.resolve(isUrl ? query : `${this.searchPrefix}:${query}`);
     if (!res) return { tracks: [] };
     switch (res.loadType) {
@@ -698,5 +724,5 @@ class MusicManager {
   }
 }
 
-module.exports = { MusicManager, GuildQueue, isStaff, matchScore, albumQuery };
+module.exports = { MusicManager, GuildQueue, isStaff, matchScore, albumQuery, isSupportedLink };
 

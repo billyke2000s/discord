@@ -19,6 +19,7 @@ async function needQueue(interaction) {
 // Skip/stop: majority vote of the people in the VC. Staff skip or stop instantly.
 async function doVote(interaction, q, kind) {
   if(kind==='previous' && !q.history.length)return interaction.reply(eph('There is no previous song in this music session yet.'));
+  if(kind==='shuffle' && q.tracks.length<2)return interaction.reply(eph('There need to be at least two songs queued to shuffle.'));
   const title = truncate(q.current.info.title, 80);
   if (isStaff(interaction.member)) {
     if (kind === 'skip') {
@@ -28,6 +29,11 @@ async function doVote(interaction, q, kind) {
     if(kind==='previous') {
       await interaction.reply({embeds:[embed('grey').setDescription(`⏮ ${interaction.user} (staff) went back to the previous song.`)]});
       return q.previous();
+    }
+    if (kind === 'shuffle') {
+      q.shuffle();
+      await interaction.reply({ embeds: [embed('grey').setDescription(`🔀 ${interaction.user} (staff) shuffled the queue.`)] });
+      return q.refreshPanel();
     }
     await interaction.reply({ embeds: [embed('grey').setDescription(`⏹ ${interaction.user} (staff) stopped the music.`)] });
     return q.destroy();
@@ -42,10 +48,16 @@ async function doVote(interaction, q, kind) {
       await interaction.reply({embeds:[embed('grey').setDescription(`⏮ Going back to the previous song by vote (${v.count}/${v.needed}).`)]});
       return q.previous();
     }
+    if (kind === 'shuffle') {
+      q.shuffle();
+      await interaction.reply({ embeds: [embed('grey').setDescription(`🔀 Queue shuffled by vote (${v.count}/${v.needed}).`)] });
+      return q.refreshPanel();
+    }
     await interaction.reply({ embeds: [embed('grey').setDescription(`⏹ Stopped by vote (${v.count}/${v.needed}).`)] });
     return q.destroy();
   }
-  await interaction.reply(eph(`${v.already ? 'You already voted.' : 'Vote counted.'} ${kind === 'skip' ? 'Skip' : kind==='previous' ? 'Go back' : 'Stop'} votes: **${v.count}/${v.needed}** (needs more than half of the people in the channel).`));
+  const label = { skip: 'Skip', previous: 'Go back', stop: 'Stop', shuffle: 'Shuffle' }[kind];
+  await interaction.reply(eph(`${v.already ? 'You already voted.' : 'Vote counted.'} ${label} votes: **${v.count}/${v.needed}** (needs more than half of the people in the channel).`));
   q.refreshPanel();
 }
 
@@ -195,12 +207,7 @@ const components = {
   'music:previous': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'previous'); },
   'music:skip': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'skip'); },
   'music:stop': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'stop'); },
-  'music:shuffle': async (i) => {
-    const q = await needQueue(i); if (!q) return;
-    q.shuffle();
-    await i.reply({ embeds: [embed('grey').setDescription(`🔀 ${i.user} shuffled the queue.`)] });
-    q.refreshPanel();
-  },
+  'music:shuffle': async (i) => { const q = await needQueue(i); if (q) await doVote(i, q, 'shuffle'); },
   'music:queue': async (i) => {
     const q = i.client.music.get(i.guildId);
     if (!q?.current) return i.reply(eph('Queue is empty.'));
