@@ -114,3 +114,20 @@ test('bootstrap resolves one video and defers the playlist request until loader 
   assert.equal(calls.length, 1); assert.equal(result.tracks[0], first);
   assert.equal((await result.remaining()).tracks.length, 2); assert.equal(calls.length, 2);
 });
+test('Spotify first song plays while the large remaining list is unresolved', async () => {
+  const spotify=require('../src/lib/spotify'), original=spotify.loadForPlayback;
+  const pending=deferred();let loading=false;
+  const song={title:'First',artist:'Artist',length:180000,uri:'spotify:track:first'};
+  spotify.loadForPlayback=async()=>({type:'playlist',name:'List',tracks:[song],remaining:()=>{loading=true;return pending.promise;}});
+  const q=queue(async t=>({...t,encoded:t.info.uri}));
+  try {
+    const result=await MusicManager.prototype.resolveForPlayback.call({},'https://open.spotify.com/playlist/abc');
+    assert.equal(loading,false);q.add(result.tracks);await q.start();
+    assert.equal(q.current.info.title,'First');assert.equal(q.player.played.length,1);
+    const importing=q.importRemaining(result.remaining,result.tracks[0],'user',async()=>{});
+    await Promise.resolve();assert.equal(loading,true);assert.equal(q.player.played.length,1);
+    pending.resolve({type:'playlist',name:'List',tracks:[song,...Array.from({length:200},(_,i)=>({...song,title:`Next ${i}`,uri:`spotify:track:t${i}`}))]});
+    await importing;assert.equal(q.tracks.length,200);assert.equal(q.current.info.title,'First');
+  }finally{spotify.loadForPlayback=original;await q.destroy();}
+});
+

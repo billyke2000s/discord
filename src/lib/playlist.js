@@ -1,6 +1,7 @@
 // Lavalink returns a complete playlist, not a stream of entries. Bootstrap one
 // public YouTube video independently, then use Lavalink for the authoritative list.
 const HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be']);
+const { firstObject } = require('./json-entry');
 function youtubePlaylist(query) {
   try {
     const url = new URL(query);
@@ -14,8 +15,11 @@ function youtubePlaylist(query) {
 
 function firstVideo(html) {
   // Restrict discovery to playlist entries: unrelated recommendations are excluded.
-  const matches = html.matchAll(/"playlistVideoRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([A-Za-z0-9_-]{11})"/g);
-  return matches.next().value?.[1] || null;
+  for(const match of html.matchAll(/"playlistVideoRenderer"\s*:\s*(\{)/g)) {
+    const entry=firstObject(html,match.index+match[0].length-1);
+    if(/^[A-Za-z0-9_-]{11}$/.test(entry?.videoId||''))return entry.videoId;
+  }
+  return null;
 }
 
 async function bootstrapVideo(playlist, fetcher = fetch) {
@@ -42,8 +46,11 @@ async function bootstrapVideo(playlist, fetcher = fetch) {
 }
 
 function withoutBootstrap(tracks, first) {
-  const index = tracks.findIndex((t) => t.info.identifier === first.info.identifier);
+  const index = tracks.findIndex((t) => first.info.identifier
+    ? t.info.identifier === first.info.identifier
+    : first.info.uri && t.info.uri === first.info.uri);
   // Start at the selected video on watch?list links; otherwise at first playable.
   return index < 0 ? tracks : tracks.slice(index + 1);
 }
 module.exports = { youtubePlaylist, firstVideo, bootstrapVideo, withoutBootstrap };
+

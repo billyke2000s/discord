@@ -529,6 +529,19 @@ class MusicManager {
   }
 
   async resolveForPlayback(query) {
+    if(spotify.isSpotifyUrl(query)) {
+      const sp=await spotify.loadForPlayback(query);
+      const tracks=sp.tracks.map(t=>({encoded:null,search:`${t.title} ${t.artist}`.trim(),
+        album:sp.type==='album' && !sp.remaining?sp.name:undefined,
+        info:{title:t.title,author:t.artist,length:t.length,uri:spotify.openUrl(t.uri),isStream:false,artworkUrl:null}}));
+      return {tracks,...(sp.type==='track'?{}:{playlist:sp.name}),
+        ...(sp.remaining?{remaining:async()=>{
+          const rest=await sp.remaining();
+          return {playlist:rest.name,tracks:rest.tracks.map(t=>({encoded:null,search:`${t.title} ${t.artist}`.trim(),
+            album:rest.type==='album'?rest.name:undefined,
+            info:{title:t.title,author:t.artist,length:t.length,uri:spotify.openUrl(t.uri),isStream:false,artworkUrl:null}}))};
+        }}:{})};
+    }
     const playlist = youtubePlaylist(query);
     if (playlist) {
       try {
@@ -624,3 +637,4 @@ class MusicManager {
 }
 
 module.exports = { MusicManager, GuildQueue, isStaff, matchScore, albumQuery };
+
