@@ -109,7 +109,8 @@ class GuildQueue {
       this.monitor.update(d?.state);
       if (typeof d?.state?.position === 'number') this.clock = { base: d.state.position, at: Date.now() };
     });
-    player.on('start', () => {
+    player.on('start', (event) => {
+      if(!this.matchesPlaybackEvent(event))return;
       this.monitor.start();
       this.monitor.pause(this.player.paused);
       this.clock = { base: 0, at: Date.now() };
@@ -121,18 +122,22 @@ class GuildQueue {
     player.on('end', (e) => {
       // 'replaced' = we called playTrack over it; 'cleanup' = player destroyed. Don't advance on those.
       if (e.reason === 'replaced' || e.reason === 'cleanup') return;
-      if (!e.track?.encoded || this.current?.encoded === e.track.encoded) this.monitor.stop(e.reason);
+      if(!this.matchesPlaybackEvent(e))return;
+      this.monitor.stop(e.reason);
       this.advanceAfterEvent(e);
     });
     player.on('stuck', (e) => {
+      if(!this.matchesPlaybackEvent(e))return;
       this.monitor.emit('track-stuck');
-      if (!e.track?.encoded || this.current?.encoded === e.track.encoded) this.monitor.stop('stuck');
+      this.monitor.stop('stuck');
       this.advanceAfterEvent(e);
     });
     player.on('exception', (e) => {
+      if(!this.matchesPlaybackEvent(e))return;
       // Raw source error text may contain signed URLs or credentials; retain event type only.
       this.monitor.emit('track-exception');
       this.send(embed('bad').setDescription(`Couldn't play **${truncate(this.current?.info.title || 'that track', 80)}**: ${truncate(e.exception?.message || 'unknown error', 200)}. Moving on.`));
+      this.advanceAfterEvent(e);
     });
     player.on('closed', () => { this.monitor.emit('voice-closed'); this.destroy(); });
   }
@@ -327,6 +332,7 @@ class GuildQueue {
       track.info.length = found.info.length || track.info.length;
       track.info.artworkUrl = found.info.artworkUrl || null;
       track.playedFrom = { title: found.info.title, author: found.info.author, uri: found.info.uri };
+      track.playbackInfo = {identifier:found.info.identifier,sourceName:found.info.sourceName};
       return track;
     }).catch(() => null).finally(() => this.preparing.delete(track));
     this.preparing.set(track, task);
@@ -376,17 +382,35 @@ class GuildQueue {
     return task;
   }
 
+  matchesPlaybackEvent(event) {
+    if(this.destroyed || !this.current)return false;
+    const track=event?.track;
+    const id=track?.userData?.serverBotPlaybackId;
+    if(id!==undefined)return id===this.playback?.id;
+    // Compatibility for sources which omit userData: compare stable source identity
+    // before encoded data, which can change when a server serializes a track.
+    const info=this.current.playbackInfo||this.current.info;
+    if(track?.info?.identifier && info.identifier) {
+      return track.info.identifier===info.identifier &&
+        (!track.info.sourceName || !info.sourceName || track.info.sourceName===info.sourceName);
+    }
+    return !track?.encoded || track.encoded===this.current.encoded;
+  }
+
   advanceAfterEvent(event) {
     const ended = this.current;
-    if (!ended || this.destroyed || (event.track?.encoded && ended.encoded !== event.track.encoded)) return;
+    if (!this.matchesPlaybackEvent(event)) return;
+    const playback=this.playback;
+    const ending=playback?.id||ended;
     // A very short/failed track can end before the play REST request settles.
     // Preserve that event and coalesce duplicates for this exact queue entry.
-    if (this.ending === ended) return;
-    this.ending = ended;
+    if (this.ending === ending) return;
+    this.ending = ending;
+    this.monitor.emit('queue-advance',{queued:this.tracks.length});
     Promise.resolve(this.transition).then(() => {
-      if (!this.destroyed && this.current === ended) return this.next();
+      if (!this.destroyed && this.current === ended && this.playback===playback) return this.next();
     }).catch((err) => console.error('[music advance]', err.message))
-      .finally(() => { if (this.ending === ended) this.ending = null; });
+      .finally(() => { if (this.ending === ending) this.ending = null; });
   }
 
   async advance() {
@@ -406,8 +430,10 @@ class GuildQueue {
       const track = this.current;
       if (track.encoded) {
         this.clearIdle();
+        this.playback={id:randomBytes(12).toString('hex'),entry:track};
         try {
-          await this.player.playTrack({ track: { encoded: track.encoded } });
+          await this.player.playTrack({ track: { encoded: track.encoded,
+            userData:{serverBotPlaybackId:this.playback.id} },position:0,endTime:null,paused:false });
           if (this.destroyed) return;
           this.playedCurrent=true;
           this.prefetch();
@@ -434,8 +460,12 @@ class GuildQueue {
     const target = this.current;
     if (this.transition) await this.transition;
     if (this.destroyed || !target || this.current !== target) return;
-    // stopTrack fires 'end' with reason 'stopped', which calls next().
+    const playback=this.playback;
     await this.player.stopTrack();
+    // REST success confirms the stop. Advance even if its websocket event is
+    // delayed/missing, while coalescing an event that already triggered advance.
+    if(!this.destroyed && this.current===target && this.playback===playback)
+      this.advanceAfterEvent({track:{userData:{serverBotPlaybackId:playback?.id}}});
   }
 
   previous() {

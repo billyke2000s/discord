@@ -129,6 +129,51 @@ test('late end event for previous encoded track does not skip current track', as
   await q.start(); await q.next(); q.player.emit('end', { reason: 'finished', track: { encoded: 'one' } });
   await Promise.resolve(); assert.equal(q.current.info.identifier, 'two'); await q.destroy();
 });
+test('finished event with re-encoded track data still starts the next queued song',async()=>{
+ const q=queue();q.add([track('one'),track('two')]);await q.start();
+ q.player.emit('end',{reason:'finished',track:{encoded:'server-reencoded-one',info:{identifier:'one'}}});
+ for(let i=0;i<12;i++)await Promise.resolve();
+ try{assert.equal(q.current.info.identifier,'two');assert.deepEqual(q.player.played,['one','two']);}
+ finally{await q.destroy();}
+});
+test('skip advances after REST stop success even with no websocket end event',async()=>{
+ const q=queue();q.add([track('one'),track('two'),track('three')]);await q.start();
+ const old=q.playback.id;
+ q.player.stopTrack=async()=>{};await q.skip();
+ for(let i=0;i<12;i++)await Promise.resolve();
+ assert.equal(q.current.info.identifier,'two');
+ q.player.emit('end',{reason:'stopped',track:{encoded:'one',userData:{serverBotPlaybackId:old}}});
+ for(let i=0;i<12;i++)await Promise.resolve();
+ assert.deepEqual(q.player.played,['one','two']);await q.destroy();
+});
+test('exception and load-failed events advance once; stale same-song events are rejected',async()=>{
+ const q=queue();q.add([track('same'),track('same'),track('last')]);await q.start();
+ const event={track:{encoded:'same',userData:{serverBotPlaybackId:q.playback.id}}};
+ q.player.emit('exception',{...event,exception:{message:'Source failed'}});
+ q.player.emit('end',{...event,reason:'loadFailed'});
+ for(let i=0;i<12;i++)await Promise.resolve();
+ assert.deepEqual(q.player.played,['same','same']);
+ q.player.emit('end',{...event,reason:'finished'});
+ for(let i=0;i<12;i++)await Promise.resolve();
+ assert.deepEqual(q.player.played,['same','same']);await q.destroy();
+});
+test('real Shoukaku dispatch starts song two on natural end and song three on skip',async()=>{
+ const {Player}=require('shoukaku');const requests=[];
+ const node={rest:{updatePlayer:async data=>{requests.push(data.playerOptions);}}};
+ const player=new Player('guild',node);
+ const manager={client:{guilds:{cache:new Map()}},queues:new Map(),shoukaku:{leaveVoiceChannel:async()=>{}},recordAudio:()=>{}};
+ const q=new GuildQueue(manager,'guild',player,null,'voice');manager.queues.set('guild',q);
+ q.add([track('one'),track('two'),track('three')]);await q.start();
+ const first=requests[0];
+ assert.equal(first.position,0);assert.equal(first.paused,false);assert.equal(first.endTime,null);
+ player.onPlayerEvent({type:'TrackEndEvent',guildId:'guild',reason:'finished',track:{encoded:'different-serialized-one',userData:first.track.userData,info:{identifier:'one'}}});
+ for(let i=0;i<16;i++)await Promise.resolve();
+ assert.equal(q.current.info.identifier,'two');
+ await q.skip();for(let i=0;i<16;i++)await Promise.resolve();
+ assert.equal(q.current.info.identifier,'three');
+ assert.deepEqual(requests.filter(r=>r.track?.encoded).map(r=>r.track.encoded),['one','two','three']);
+ await q.destroy();
+});
 test('matching keeps the original recording ahead of a cover', () => {
   const want = { title: 'Example', author: 'Artist', length: 180000 };
   assert.ok(matchScore(want, { ...want, author: 'Artist - Topic' }) > matchScore(want, { ...want, title: 'Example cover' }));
