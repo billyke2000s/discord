@@ -92,6 +92,14 @@ const DEFAULTS = {
   suggestions: {
     channel: null, // messages get 👍/👎 and a discussion thread
   },
+  levels: {
+    enabled: true, // XP for chatting, /rank and /leaderboard
+    announce: 'here', // level-up message: 'here' (where they chatted), 'channel' (announceChannel) or 'off'
+    announceChannel: null,
+    rewards: [], // [{ level, roleId }] roles given on reaching a level
+    stackRewards: true, // keep lower reward roles (false = only the highest)
+    ignoredChannels: [], // no XP in these channels
+  },
 };
 
 function deepMerge(base, over) {

@@ -12,6 +12,7 @@ const modules = [
   require('./help'),
   require('./diagnostics'),
   require('./status'),
+  require('./levels'),
 ];
 
 const commands = new Map(); // name -> { data, execute }

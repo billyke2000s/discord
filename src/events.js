@@ -6,6 +6,7 @@ const antiRaid = require('./lib/antiraid');
 const voice = require('./commands/voice');
 const verify = require('./commands/verify');
 const scamfilter = require('./lib/scamfilter');
+const levels = require('./commands/levels');
 
 module.exports = function registerEvents(client) {
   // ---- member join: lockdown, account age flag, verification queue, welcome ----
@@ -97,6 +98,9 @@ module.exports = function registerEvents(client) {
         .startThread({ name: truncate(`Discuss: ${msg.content || 'suggestion'}`, 90), autoArchiveDuration: 10080 })
         .catch(() => {});
     }
+
+    // XP for chatting. Runs last, so removed messages (scam filter, self-promo) earn nothing.
+    await levels.handleMessage(msg, s).catch((e) => console.error('[levels]', e.message));
   });
 
   // ---- message logs ----

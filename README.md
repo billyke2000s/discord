@@ -8,7 +8,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 
 ## Contents
 
-[Features](#features) · [What you need](#what-you-need) · [Install](#install) · [First time in Discord](#first-time-in-discord) · [Commands](#commands) · [Music](#music) · [Protection](#verification-moderation-and-protection) · [Server reset](#who-can-reset-the-server) · [Birthdays](#birthdays) · [Update the bot](#update-the-bot) · [Diagnostics](#diagnostics) · [Backups](#backups) · [Troubleshooting](#troubleshooting) · [Limits](#limits) · [Files](#files)
+[Features](#features) · [What you need](#what-you-need) · [Install](#install) · [First time in Discord](#first-time-in-discord) · [Commands](#commands) · [Music](#music) · [Protection](#verification-moderation-and-protection) · [Server reset](#who-can-reset-the-server) · [Levels](#levels) · [Birthdays](#birthdays) · [Update the bot](#update-the-bot) · [Diagnostics](#diagnostics) · [Backups](#backups) · [Troubleshooting](#troubleshooting) · [Limits](#limits) · [Files](#files)
 
 ---
 
@@ -26,6 +26,7 @@ It runs on your VPS in three Docker containers: the bot, Lavalink (music) and a 
 | 📋 **Logs** | Joins, leaves, deleted and edited messages, and every mod action. |
 | 👋 **Welcome, suggestions, self-promo** | Welcome message, 👍/👎 plus a discussion thread on suggestions, and a 7-day wait before self-promo. |
 | 🏗️ **Server builder** | `/setup rebuild` builds the whole server layout in one go. It works once, then locks. |
+| 🏅 **Levels** | XP for chatting, `/rank`, `/leaderboard`, level-up messages and reward roles at set levels. |
 | 🎂 **Birthdays** | Private set/show commands, an announcement with age, and a 👑 Birthday role for 24 hours. |
 | 🩺 **Status checks** | `/status` lets anyone see if music is down or it's just them. `/diagnostics` gives admins the full picture and what to fix. |
 | 🔄 **Updates** | Optional daily automatic updates with backups and automatic rollback, or `/update` from Discord. |
@@ -110,6 +111,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/queue` | View the queue, ten songs per page |
 | `/nowplaying` | Bring the music panel back to the bottom |
 | `/status` | Is the music working, or is it just me? A quick private check |
+| `/rank [user]` · `/leaderboard` | Your level and XP, and the most active members |
 | `/birthday set` · `/birthday show` | Save or see your own birthday (private reply) |
 | `/vc lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel |
 | `/help` | What you can use |
@@ -124,6 +126,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/setup show` | Current settings |
 | `/setup logs · welcome · verify · verify-off · verify-existing · joinvoice · joinvoice-off · tickets · scamfilter` | Set features up one at a time |
 | `/buttonroles` | Post self-assign role buttons |
+| `/levels` | Levelling: on/off, where level-ups are posted, reward roles, channels without XP, set or reset a member |
 | `/lockdown on · off · status` | Kick anyone new who joins, during a raid |
 
 ### Owner only
@@ -183,6 +186,28 @@ docker compose up -d
 ```
 
 Set it back to `no` afterwards.
+
+---
+
+## Levels
+
+Members earn **15–25 XP per message, at most once a minute**, so spamming doesn't help. Removed messages (scam filter, self-promo) earn nothing. The level curve is the one most Discord levelling bots use (level 1 at 100 XP, level 5 at 1,325, level 10 at 4,675).
+
+Levelling is **on** after updating, with level-up messages posted where the member was chatting. Change it with `/levels`:
+
+| Command | What it does |
+|---|---|
+| `/levels show` | Current settings |
+| `/levels toggle enabled:false` | Turn levelling off (XP is kept) |
+| `/levels announce where:One channel channel:#level-ups` | Post level-ups in one channel (or *Nowhere*) |
+| `/levels reward-add level:5 role:@Regular` | Give a role at a level. Members already past it get it next time they chat |
+| `/levels reward-remove level:5` | Stop giving that role (members keep it) |
+| `/levels stack keep:false` | Keep only the highest reward role |
+| `/levels ignore channel:#spam` | No XP in that channel (run again to undo) |
+| `/levels set user:@x level:12` | Set a member's level, e.g. moving over from another bot |
+| `/levels reset user:@x` | Reset a member's XP |
+
+Reward roles can't have mod or admin permissions, can't be the Member or Staff role, and must be below the bot's role.
 
 ---
 

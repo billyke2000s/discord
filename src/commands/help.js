@@ -14,6 +14,10 @@ const help = {
           '`/birthday set` · `/birthday show` — a birthday announcement and 👑 Birthday role for 24 hours (UTC dates).',
       },
       {
+        name: '🏅 Levels',
+        value: '`/rank` your level and XP · `/leaderboard` the most active members. Chatting earns XP (once a minute).',
+      },
+      {
         name: '🎵 Music',
         value:
           '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back · `/status` checks whether music is working or down\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
@@ -31,7 +35,7 @@ const help = {
       });
     if (m.permissions.has(P.ManageGuild) || isOwner(interaction.user, interaction.guild)) {
       let admin =
-        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/lockdown` · `/diagnostics` (full check of the bot and VPS, says what to fix; once a minute)';
+        '`/setup show|logs|welcome|verify|verify-off|verify-existing|joinvoice|joinvoice-off|tickets|scamfilter` · `/buttonroles` · `/levels` · `/lockdown` · `/diagnostics` (full check of the bot and VPS, says what to fix; once a minute)';
       if (isOwner(interaction.user, interaction.guild)) {
         const locked = rebuildLocked(interaction.guildId);
         admin += locked
