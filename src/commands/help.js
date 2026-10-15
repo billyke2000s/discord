@@ -9,7 +9,7 @@ const help = {
     const m = interaction.member;
     const fields = [
       { name: '🎂 Birthdays', value: '`/birthday set` · `/birthday show` — a birthday announcement and 👑 Birthday role for 24 hours (UTC dates).' },
-      { name: '🎵 Music', value: '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has pause, vote skip, vote stop, shuffle, queue and volume. Skip and stop need more than half of the people in the channel.' },
+      { name: '🎵 Music', value: '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back\nThe panel (in the voice channel’s chat) has vote go back, vote skip, vote stop, shuffle and a queue with page arrows. Back, skip and stop need more than half of the people in the channel.' },
       { name: '🔊 Your voice channel', value: 'Join ➕・Join to Create to get your own, then `/vc lock` `unlock` `limit` `rename` `kick` `transfer`' },
     ];
     if (m.permissions.has(P.ModerateMembers) || isOwner(interaction.user, interaction.guild))

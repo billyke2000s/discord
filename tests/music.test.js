@@ -31,6 +31,28 @@ test('overlapping next calls resolve and play one track only', async () => {
   assert.equal(calls, 1); assert.deepEqual(q.player.played, ['one']);
   await q.destroy();
 });
+test('go back coalesces requests and preserves the interrupted song and queue',async()=>{
+ const q=queue();q.add([track('one'),track('two'),track('three')]);
+ await q.start();assert.equal(await q.previous(),false);
+ await q.next();assert.equal(q.history.length,1);
+ const a=q.previous(),b=q.previous();assert.equal(a,b);await a;
+ assert.equal(q.current.info.identifier,'one');
+ assert.deepEqual(q.tracks.map(t=>t.info.identifier),['two','three']);
+ await q.next();assert.equal(q.current.info.identifier,'two');
+ const ids=q.panelPayload().components.flatMap(row=>row.toJSON().components.map(c=>c.custom_id));
+ assert.ok(ids.includes('music:previous'));
+ assert.ok(!ids.some(id=>/toggle|volup|voldown/.test(id)));
+ await q.destroy();assert.equal(q.history.length,0);
+});
+test('previous votes require a majority and count only current human listeners',async()=>{
+ const q=queue();q.listeners=()=>new Map([['1',{}],['2',{}],['3',{}]]);
+ assert.equal(q.vote('previous','1').passed,false);
+ assert.equal(q.vote('previous','1').already,true);
+ assert.equal(q.vote('previous','2').passed,true);
+ q.listeners=()=>new Map([['3',{}]]);
+ assert.equal(q.voteStatus('previous').count,0);
+ await q.destroy();
+});
 test('rejected playback advances to the next track', async () => {
   const q = queue(); q.add([track('bad'), track('good')]);
   const play = q.player.playTrack;
