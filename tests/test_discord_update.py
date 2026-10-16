@@ -83,3 +83,48 @@ class DiscordUpdateTests(unittest.TestCase):
             bridge.process(self.root)
         self.assertEqual(self.result()['state'], 'current')
 
+
+
+class SongGapWorkerTests(DiscordUpdateTests):
+    def waiting_request(self):
+        self.submit()
+        (self.root / 'updates/status/result.json').write_text(json.dumps({**self.request, 'schema': 1, 'state': 'waiting'}))
+
+    def test_heartbeat_announces_song_gap_support(self):
+        with patch.object(bridge.updater, 'main'):
+            bridge.process(self.root)
+        heartbeat = json.loads((self.root / 'updates/status/heartbeat.json').read_text())
+        self.assertIn('song-gap', heartbeat['features'])
+
+    def test_waiting_request_does_nothing_until_the_gap_and_does_not_ask_github(self):
+        self.waiting_request()
+        with patch.object(bridge.updater, 'gap_reached', return_value=False), patch.object(bridge.updater, 'latest_release') as github, patch.object(bridge.updater, 'main') as deploy, patch.object(bridge, 'verify_owner') as verify:
+            bridge.process(self.root)
+            github.assert_not_called()
+            deploy.assert_not_called()
+            verify.assert_not_called()
+        self.assertEqual(self.result()['state'], 'waiting')
+
+    def test_waiting_request_installs_at_the_gap_without_rechecking_the_owner(self):
+        self.waiting_request()
+        state = {'Config': {'Env': ['BOT_BUILD_VERSION=v-new']}}
+        with patch.object(bridge.updater, 'gap_reached', return_value=True), patch.object(bridge.updater, 'latest_release', return_value={'version': 'v-new'}), patch.object(bridge.updater, 'container_state', return_value=state), patch.object(bridge.updater, 'main', return_value='updated') as deploy, patch.object(bridge, 'verify_owner') as verify:
+            bridge.process(self.root)
+            deploy.assert_called_once()
+            verify.assert_not_called()
+        self.assertEqual(self.result()['state'], 'updated')
+
+    def test_daily_update_waiting_without_a_request_is_retried_at_the_gap(self):
+        os.chdir(self.root)
+        (self.root / 'updates/status/pending.json').write_text('{"schema":1,"since":1}')
+        with patch.object(bridge.updater, 'gap_reached', return_value=True), patch.object(bridge.updater, 'main') as deploy:
+            bridge.process(self.root)
+            deploy.assert_called_once_with(['--directory', str(self.root), '--apply'])
+
+    def test_turning_updates_off_while_waiting_releases_the_music(self):
+        (self.root / 'auto-update.json').write_text('{"enabled":false}')
+        (self.root / 'updates/status/pending.json').write_text('{"schema":1,"since":1}')
+        with patch.object(bridge.updater, 'main') as deploy:
+            bridge.process(self.root)
+            deploy.assert_not_called()
+        self.assertFalse((self.root / 'updates/status/pending.json').exists())

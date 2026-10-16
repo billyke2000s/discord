@@ -271,7 +271,9 @@ Replies are private. On the day, the bot posts in 🎂・birthdays with the memb
 
 ### Update from Discord
 
-The **actual server owner** can run `/update` (or `/update check-only:true` to only check). Stop music with `/stop` first. The VPS backs up, installs the new bot, checks it's healthy and rolls back if not. The result arrives by DM.
+The **actual server owner** can run `/update` (or `/update check-only:true` to only check). The VPS backs up, installs the new bot, checks it's healthy and rolls back if not. The result arrives by DM.
+
+**Music keeps going.** If music is playing, the panel says an update is ready and the update waits for the end of the current song. Then the bot saves the queue, steps out for about a minute while the new version starts, and carries on with the next song, posting what's new. If no song ends within 10 minutes (a long mix or a livestream), it updates anyway and carries on from the same second. If the update is called off, the music comes straight back. A short silence between those two songs is unavoidable: the bot has to restart, and Discord ends its audio when it does. (Installations set up before this feature need `install.sh` run once for it; until then `/update` asks you to `/stop` first.)
 
 This needs the host update bridge, which the manual installer sets up and [automatic updates](#automatic-updates) switch on.
 
@@ -302,7 +304,7 @@ systemctl enable --now server-bot-update.timer server-bot-discord-update.timer &
 systemctl list-timers server-bot-update.timer --no-pager
 ```
 
-It checks daily at 04:00–04:30 in the VPS's timezone, skips the day if music is playing, backs up first and rolls back if the new bot isn't healthy. Check now or read the result:
+It checks daily at 04:00–04:30 in the VPS's timezone, waits for the gap between songs if music is playing (see [Update from Discord](#update-from-discord)), backs up first and rolls back if the new bot isn't healthy. Check now or read the result:
 
 ```bash
 systemctl start server-bot-update.service
@@ -313,7 +315,8 @@ journalctl -u server-bot-update.service -n 40 --no-pager
 |---|---|
 | `Deployed and healthy` | Updated. Run `/diagnostics`. |
 | `Already on this release` | Nothing to do. |
-| `Music session active; deferring` | `/stop` the music and run it again. |
+| `the update waits for the gap between songs` | Music is playing. It installs when the current song ends (within 10 minutes), handled by the 15-second worker. |
+| `Music session active; deferring` | An older updater: run `install.sh` once, or `/stop` the music and run it again. |
 | `Automatic updates disabled` | `auto-update.json` doesn't say `{"enabled": true}`. |
 | Anything about a failed image or recovery | Read [recovery](docs/AUTO_UPDATES.md#inspect-disable-recover) before deleting anything. |
 

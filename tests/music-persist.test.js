@@ -208,3 +208,92 @@ test('a damaged saved row is dropped without blocking the others', () => {
   );
   assert.equal(db.prepare('SELECT COUNT(*) c FROM music_sessions').get().c, 1);
 });
+
+const settle = async () => {
+  for (let n = 0; n < 20; n++) await new Promise((r) => setImmediate(r));
+};
+
+test('an update waits for the gap between songs: the queue is saved with the next song first, then resumes with notes', async () => {
+  const manager = fakeManager();
+  const q = newQueue(manager);
+  q.add([track('a'), track('b'), track('c')]);
+  await q.start();
+  manager.updatePending = { version: 'v9' };
+  assert.match(q.panelPayload().embeds[0].toJSON().description, /update is ready\. It installs when this song ends/);
+
+  await q.skip(); // the song ends (same path as a natural end)
+  await settle();
+  assert.equal(q.destroyed, true, 'left voice for the update');
+  assert.deepEqual(
+    q.player.played.map((p) => p.encoded),
+    ['enc-a'],
+    'the next song was not started',
+  );
+  assert.match(sent.at(-1), /update \(`v9`\) between songs/);
+  const [saved] = rows();
+  assert.equal(saved.data.current, null);
+  assert.deepEqual(
+    saved.data.tracks.map((t) => t.info.identifier),
+    ['b', 'c'],
+  );
+
+  // The updated bot starts: the next song plays from the beginning and says what's new.
+  const after = Object.assign(fakeManager(), {
+    restoreAll: MusicManager.prototype.restoreAll,
+    restoreOne: MusicManager.prototype.restoreOne,
+    updated: { version: 'v9', notes: ['Add lyrics'], at: Date.now() },
+  });
+  after.client.guilds.cache.set('g1', guildWith());
+  assert.equal(await after.restoreAll(), 1);
+  const resumed = after.queues.get('g1');
+  assert.deepEqual(resumed.player.played.at(-1), { encoded: 'enc-b', position: 0 });
+  assert.match(
+    sent.at(-1),
+    /The bot was updated\*\* to `v9`\. What's new:\n• Add lyrics\n\n▶️ Carrying on with \*\*Song b\*\*/,
+  );
+  await resumed.destroy();
+});
+
+test('no hold when nothing is queued next or a playlist is still loading', async () => {
+  const last = newQueue(fakeManager());
+  last.manager.updatePending = { version: 'v9' };
+  last.add([track('only')]);
+  await last.start();
+  await last.skip();
+  await settle();
+  assert.equal(last.destroyed, false, 'queue just finished as usual');
+  await last.destroy();
+
+  const loading = newQueue(fakeManager());
+  loading.manager.updatePending = { version: 'v9' };
+  loading.add([track('a'), track('b')]);
+  await loading.start();
+  loading.imports.add(new Promise(() => {}));
+  await loading.skip();
+  await settle();
+  assert.equal(loading.destroyed, false);
+  assert.equal(loading.current.info.identifier, 'b');
+  await loading.destroy();
+});
+
+test('an update that is called off brings held music straight back; panels refresh on changes', async () => {
+  let restored = 0,
+    refreshed = 0;
+  const manager = {
+    client: { isReady: () => true },
+    queues: new Map([['g1', { refreshPanel: () => refreshed++ }]]),
+    updatePending: null,
+    restoreAll: async () => {
+      restored++;
+      return 0;
+    },
+  };
+  const set = (p) => MusicManager.prototype.setUpdatePending.call(manager, p);
+  set({ version: 'v9' });
+  set({ version: 'v9' });
+  assert.equal(refreshed, 1, 'only on a change');
+  assert.equal(restored, 0);
+  set(null);
+  assert.equal(refreshed, 2);
+  assert.equal(restored, 1);
+});

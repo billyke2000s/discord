@@ -14,6 +14,12 @@ from pathlib import Path
 
 REPO = 'billyke2000s/discord'
 IMAGE = re.compile(r'ghcr\.io/billyke2000s/discord@sha256:[0-9a-f]{64}')
+# While music plays, an update waits for the gap between two songs: the bot sees this file (through its
+# read-only status mount), saves the queue when the current song ends and leaves voice, and the update
+# goes in once no music session is left. After WAIT_MAX it goes in anyway; the bot then resumes the
+# song from the same second after the restart.
+PENDING = Path('updates/status/pending.json')
+WAIT_MAX = 10 * 60
 
 
 def get_json(url):
@@ -113,6 +119,52 @@ def deploy(image, env_path, original, recreate=None, check=None):
         raise
 
 
+def read_pending():
+    try:
+        data = json.loads(PENDING.read_text())
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def clear_pending():
+    try:
+        PENDING.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def music_gap(health, release, now=None):
+    """True when the update may go in now. Otherwise marks it as waiting for a song gap."""
+    if health.get('sessions') == 0:
+        return True
+    now = time.time() if now is None else now
+    pending = read_pending()
+    if not pending or pending.get('image') != release['image'] or not isinstance(pending.get('since'), (int, float)):
+        PENDING.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(PENDING, json.dumps({'schema': 1, 'image': release['image'], 'version': release['version'],
+                                          'since': now}), mode=0o644)  # no secrets; the bot must read it
+        return False
+    return now - pending['since'] >= WAIT_MAX
+
+
+def gap_reached(now=None):
+    """While an update waits for a song gap: has the gap come (no music session) or has it waited long
+    enough? A cheap local check, so the 15-second worker doesn't ask GitHub for the release every run
+    (its anonymous limit is 60 requests an hour)."""
+    pending = read_pending()
+    if not pending or not isinstance(pending.get('since'), (int, float)):
+        return True
+    now = time.time() if now is None else now
+    if now - pending['since'] >= WAIT_MAX:
+        return True
+    try:
+        health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
+    except Exception:
+        return False
+    return health.get('sessions') == 0
+
+
 def recover_pending(directory):
     journal = Path('.update-pending.json')
     if not journal.exists():
@@ -148,12 +200,14 @@ def main(argv=None):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.apply:
             recover_pending(directory)
-        image = latest_image()
+        release = latest_release()
+        image = release['image']
         state = container_state()
         old = state['Config']['Image']
         if not IMAGE.fullmatch(old):
             raise ValueError('Current image must be pinned to a release digest; run the manual installer first')
         if old == image:
+            clear_pending()
             print('Already on this release')
             return 'current'
         print(f'Available bot image: {image}')
@@ -165,42 +219,57 @@ def main(argv=None):
             raise ValueError('This image previously failed; inspect logs before removing .failed-update')
         if state['State'].get('Health', {}).get('Status') != 'healthy':
             raise ValueError('Current bot is not healthy; refusing an automatic deployment')
-        health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
-        if health.get('sessions') != 0:
-            print('Music session active; deferring to the next timer run')
-            return 'deferred'
-        if shutil.disk_usage(directory).free < 2 * 1024**3:
-            raise ValueError('Less than 2 GiB free; clear space before updating')
-        env_path = Path('.env')
-        original = env_path.read_text()
-        if not re.search(r'^BOT_IMAGE=["\']?' + re.escape(old) + r'["\']?\s*$', original, re.M):
-            raise ValueError('Running image and .env differ; reconcile before updating')
-        # Pull first: download failure cannot stop the running bot.
-        run('docker', 'pull', image)
-        health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
-        if health.get('sessions') != 0:
-            print('Music started during download; deferring deployment')
-            return 'deferred'
-        os.umask(0o077)
-        backup = Path('backups') / ('auto-update-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S'))
-        backup.mkdir(mode=0o700)
-        shutil.copy2(env_path, backup / '.env')
-        shutil.copy2('docker-compose.yml', backup / 'docker-compose.yml')
-        if Path('locks').exists():
-            shutil.copytree('locks', backup / 'locks')
-        # SQLite's online backup API makes a consistent snapshot while the bot runs.
-        compose('exec', '-T', 'bot', 'node', 'src/lib/backup.js', 'pre-update')
-        journal = Path('.update-pending.json')
-        # 0600, root-only folder: holds the settings to restore if this run is interrupted.
-        atomic_write(journal, json.dumps({'backup': str(backup / '.env'), 'image': image, 'env': original}))
         try:
-            deploy(image, env_path, original)
+            return apply(directory, release, state, failed)
         except Exception:
-            atomic_write(failed, image)
+            clear_pending()  # never leave the bot holding songs for an update that isn't coming
             raise
-        journal.unlink()
-        print(f'Deployed and healthy. Settings backup: {backup}; SQLite backup in backups/')
-        return 'updated'
+
+
+def apply(directory, release, state, failed):
+    image, old = release['image'], state['Config']['Image']
+    health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
+    if not music_gap(health, release):
+        print('Music is playing; the update waits for the gap between songs')
+        return 'waiting'
+    if health.get('sessions') != 0:
+        print('No gap between songs within 10 minutes; updating now (music resumes at the same point)')
+    if shutil.disk_usage(directory).free < 2 * 1024**3:
+        raise ValueError('Less than 2 GiB free; clear space before updating')
+    env_path = Path('.env')
+    original = env_path.read_text()
+    if not re.search(r'^BOT_IMAGE=["\']?' + re.escape(old) + r'["\']?\s*$', original, re.M):
+        raise ValueError('Running image and .env differ; reconcile before updating')
+    # Pull first: download failure cannot stop the running bot.
+    run('docker', 'pull', image)
+    health = json.loads(compose('exec', '-T', 'bot', 'cat', '/tmp/server-bot-health.json'))
+    if not music_gap(health, release):
+        print('Music started during download; the update waits for the gap between songs')
+        return 'waiting'
+    os.umask(0o077)
+    backup = Path('backups') / ('auto-update-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S'))
+    backup.mkdir(mode=0o700)
+    shutil.copy2(env_path, backup / '.env')
+    shutil.copy2('docker-compose.yml', backup / 'docker-compose.yml')
+    if Path('locks').exists():
+        shutil.copytree('locks', backup / 'locks')
+    # SQLite's online backup API makes a consistent snapshot while the bot runs.
+    compose('exec', '-T', 'bot', 'node', 'src/lib/backup.js', 'pre-update')
+    journal = Path('.update-pending.json')
+    # 0600, root-only folder: holds the settings to restore if this run is interrupted.
+    atomic_write(journal, json.dumps({'backup': str(backup / '.env'), 'image': image, 'env': original}))
+    # pending.json stays until the deployment has finished: if it went now, the old bot would think the
+    # update was called off and start the next song seconds before being restarted. The new bot ignores
+    # it (it names the new bot's own version); on failure main() clears it and the old bot resumes.
+    try:
+        deploy(image, env_path, original)
+    except Exception:
+        atomic_write(failed, image)
+        raise
+    clear_pending()
+    journal.unlink()
+    print(f'Deployed and healthy. Settings backup: {backup}; SQLite backup in backups/')
+    return 'updated'
 
 
 if __name__ == '__main__':

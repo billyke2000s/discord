@@ -7,6 +7,7 @@ const { randomBytes } = require('node:crypto');
 const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlist');
 const { AudioMonitor } = require('./audio-monitor');
 const lyrics = require('./lyrics');
+const { updateMessage } = require('./version-notes');
 
 const SAVE_EVERY_MS = 5_000; // save queue changes within 5 s
 const SAVE_POSITION_MS = 30_000; // and the song position at least every 30 s while playing
@@ -372,6 +373,7 @@ class GuildQueue {
         {
           stopped: '⏹ Music stopped.',
           restarting: '⏸ The bot is restarting. Music will carry on from here in a moment.',
+          updating: '🔄 Updating the bot. The next song starts in about a minute.',
           reconnecting: "⏸ Lost the music server. Music will carry on from here when it's back.",
         }[state] || '✅ Queue finished. Use `/play` to add more.';
       return { embeds: [embed(BRAND_COLOR).setAuthor(brand).setDescription(text)], components: [] };
@@ -406,7 +408,7 @@ class GuildQueue {
       .setURL(safeUrl(t.info.uri))
       .setThumbnail(safeUrl(t.info.artworkUrl))
       .setDescription(
-        `${t.info.author || ''}${from}\n\n${paused ? '⏸ **Paused**\n' : ''}${time}${lyric ? `\n🎤 *${escapeMarkdown(truncate(lyric, 120))}*` : ''}`,
+        `${t.info.author || ''}${from}\n\n${paused ? '⏸ **Paused**\n' : ''}${time}${lyric ? `\n🎤 *${escapeMarkdown(truncate(lyric, 120))}*` : ''}${this.manager.updatePending ? '\n\n🔄 *A bot update is ready. It installs when this song ends, then the music carries on.*' : ''}`,
       )
       .addFields(
         { name: 'Requested by', value: `<@${t.requester}>`, inline: true },
@@ -710,6 +712,10 @@ class GuildQueue {
       if (this.history.length > MAX_QUEUE) this.history.shift();
     }
     this.playedCurrent = false;
+    // An update is waiting for the gap between songs: this is it. (Not while a playlist is still
+    // loading, which would lose the rest of it; the VPS updates anyway after 10 minutes.)
+    if (this.manager.updatePending && this.current && this.tracks.length && !this.imports.size)
+      return this.holdForUpdate();
     for (;;) {
       this.current = this.tracks.shift() || null;
       this.changes++;
@@ -796,6 +802,20 @@ class GuildQueue {
     return task;
   }
 
+  // Save the queue with the next song first, say why, and leave. The updated bot plays it on start-up;
+  // if the update is called off, MusicManager.setUpdatePending brings the music straight back.
+  async holdForUpdate() {
+    this.current = null;
+    this.changes++;
+    const version = this.manager.updatePending?.version;
+    this.send(
+      embed('grey').setDescription(
+        `🔄 Installing a bot update${version ? ` (\`${escapeMarkdown(version)}\`)` : ''} between songs. The music carries on with the next song in about a minute.`,
+      ),
+    );
+    await this.suspend('update');
+  }
+
   scheduleIdleLeave() {
     this.clearIdle();
     this.idleTimer = setTimeout(() => {
@@ -847,7 +867,9 @@ class GuildQueue {
         console.error('[music] could not clear the saved queue:', err.message);
       }
     }
-    await this.endPanel(keep ? (reason === 'music-server' ? 'reconnecting' : 'restarting') : 'stopped');
+    await this.endPanel(
+      keep ? { 'music-server': 'reconnecting', update: 'updating' }[reason] || 'restarting' : 'stopped',
+    );
     await this.manager.shoukaku.leaveVoiceChannel(this.guildId).catch(() => {});
   }
 }
@@ -858,6 +880,8 @@ class MusicManager {
     // Saved sessions (src/lib/music-store.js). Passed in so tests and tools can run without a database.
     this.store = store || null;
     this.restoring = null;
+    this.updatePending = null; // { version } while the VPS waits for the gap between songs to update
+    this.updated = null; // { version, notes, at } when this start-up followed an update
     this.queues = new Map();
     this.creating = new Map(); // guildId -> promise, so two quick /plays don't join twice
     this.playRequests = new Map();
@@ -903,6 +927,17 @@ class MusicManager {
 
   get(guildId) {
     return this.queues.get(guildId);
+  }
+
+  // From the update bridge every few seconds. Panels show the notice; if a waiting update is called
+  // off (failed check, turned off, VPS worker stopped), music held for it comes straight back.
+  setUpdatePending(pending) {
+    const was = this.updatePending;
+    this.updatePending = pending || null;
+    if (!!was === !!this.updatePending) return;
+    for (const q of this.queues.values()) q.refreshPanel();
+    if (was && !this.updatePending && this.client.isReady?.())
+      this.restoreAll().catch((err) => console.error('[music] resume after a cancelled update:', err.message));
   }
 
   async withPlayLock(guildId, work) {
@@ -1130,9 +1165,13 @@ class MusicManager {
       if (Number.isFinite(data.volume) && data.volume !== q.volume) await q.setVolume(data.volume);
       q.tracks.push(...tracks.slice(0, MAX_QUEUE));
       q.changes++;
+      const song = `**${truncate(tracks[0].info.title, 80)}**`;
+      const updated = this.updated && Date.now() - this.updated.at < 15 * 60_000 ? this.updated : null;
       q.send(
-        embed('grey').setDescription(
-          `▶️ Back after a restart. Carrying on with **${truncate(tracks[0].info.title, 80)}**.`,
+        embed(updated ? 'ok' : 'grey').setDescription(
+          updated
+            ? `${updateMessage(updated)}\n\n▶️ Carrying on with ${song}.`
+            : `▶️ Back after a restart. Carrying on with ${song}.`,
         ),
       );
     } finally {

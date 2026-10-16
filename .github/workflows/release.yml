@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history, for the "what's new" list
 
       - uses: actions/setup-node@v4
         with:
@@ -36,6 +38,19 @@ jobs:
         run: |
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "version=v$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # Titles of the pull requests merged since the previous release. Shown in Discord when music
+      # resumes after an update, and in the release notes.
+      - name: What's new since the last release
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prev=""
+          if gh release download --pattern update.json --output "$RUNNER_TEMP/previous.json" 2>/dev/null; then
+            prev=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit", ""))' "$RUNNER_TEMP/previous.json")
+          fi
+          echo "json=$(python3 scripts/release-notes.py "$prev")" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -56,6 +71,7 @@ jobs:
           build-args: |
             BUILD_VERSION=${{ steps.name.outputs.version }}
             BUILD_COMMIT=${{ github.sha }}
+            BUILD_NOTES=${{ steps.notes.outputs.json }}
           tags: |
             ${{ steps.name.outputs.image }}:latest
             ${{ steps.name.outputs.image }}:sha-${{ github.sha }}
@@ -72,12 +88,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_RELEASE_IMAGE: ${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}
+          NOTES_JSON: ${{ steps.notes.outputs.json }}
         run: |
           tag="${{ steps.name.outputs.version }}"
           export RELEASE_TAG="$tag"
           python3 -c 'import json,os; json.dump({"repository":os.environ["GITHUB_REPOSITORY"],"tag":os.environ["RELEASE_TAG"],"commit":os.environ["GITHUB_SHA"],"image":os.environ["BOT_RELEASE_IMAGE"],"deployment":1},open("dist/update.json","w"))'
+          # Notes go through a file, never the shell, since PR titles can contain any characters.
+          python3 -c 'import json,os; notes=json.loads(os.environ.get("NOTES_JSON") or "[]"); open("dist/notes.md","w").write(("## What'"'"'s new\n" + "".join("- %s\n" % n for n in notes) + "\n" if notes else "") + "Download **install.sh**, upload it to /root on your VPS and run: `bash install.sh`. Already installed? Use `/update` in Discord.\n")'
           gh release create "$tag" dist/install.sh dist/update.json \
             --title "$tag" \
-            --notes "Download **install.sh**, upload it to /root on your VPS and run: \`bash install.sh\`" \
+            --notes-file dist/notes.md \
             --latest
 

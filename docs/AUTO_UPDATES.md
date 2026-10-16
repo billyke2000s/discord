@@ -40,8 +40,17 @@ jitter. Missed checks run after reboot. It does not follow the user's desktop ti
 
 The updater locks against another updater/manual installer, validates the repository,
 release tag, commit and image digest, and requires a currently healthy digest-pinned
-bot. Local/tag-only images are refused. It defers while a music queue exists, pulls
-before changing `.env`, checks idle again, requires 2 GiB free disk, saves settings,
+bot. Local/tag-only images are refused. While a music queue exists it writes
+`updates/status/pending.json` (image, version, start time) and returns `waiting`; the bot
+reads it through its read-only status mount, shows a notice on the music panel, and at the
+end of the current song saves the queue (next song first) and leaves voice. The 15-second
+worker re-checks locally (no GitHub request while waiting, as its anonymous limit is 60 an
+hour) and continues once no session is left, or after 10 minutes regardless; the bot then
+resumes mid-song from its saved position. `pending.json` stays until the deployment has
+finished (so the old bot doesn't start the next song seconds before its restart) and is removed
+after it or on any error; the bot ignores it when stale, disabled or for its own version, and
+music held for an update that is called off resumes at once. It pulls
+before changing `.env`, checks again, requires 2 GiB free disk, saves settings,
 Compose and lock files, and makes an online SQLite backup. Backup failure aborts.
 Only the `BOT_IMAGE=` line changes. Duplicate/missing lines or disagreement between
 the running image and `.env` abort rather than guessing.
@@ -119,7 +128,7 @@ requests and already processed IDs are ignored. It never follows request symlink
 
 Version metadata is embedded at image build time. Updates still affect only the
 bot image; the command cannot update the host worker, timer, Compose or Lavalink.
-The command is not a bypass for disabled opt-in, active music, unhealthy current
+Active music no longer blocks it (see above). The command is not a bypass for disabled opt-in, unhealthy current
 state, failed-image quarantine, incompatible manifests or unavailable disk space.
 
 Results persist through bot restarts. Owner DMs are best effort and attempted once;
