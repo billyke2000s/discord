@@ -180,7 +180,7 @@ async function act(message, hit, cfg) {
     );
     const count = countWarnings.get(message.guild.id, message.author.id).c;
     action = `Deleted + warning #${count}`;
-    dm += ` This counts as a warning (you have ${count}).`;
+    dm += ` This counts as a warning (you have ${count}). Use \`/mywarnings\` in the server to see them.`;
   } else if (rule.action === 'timeout' && message.member?.moderatable) {
     await message.member
       .timeout(cfg.timeoutMinutes * 60_000, `Automod: ${name}`)

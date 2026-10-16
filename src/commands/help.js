@@ -23,6 +23,10 @@ const help = {
           '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back · `/status` checks whether music is working or down\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
       },
       {
+        name: '⚠️ Your warnings',
+        value: '`/mywarnings` shows your own warnings and why you got them (only you see it).',
+      },
+      {
         name: '🔊 Your voice channel',
         value: 'Join ➕・Join to Create to get your own, and use the control panel in its chat (or `/vc`)',
       },

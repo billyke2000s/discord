@@ -33,6 +33,10 @@ function guideEmbed(s) {
       name: '🔊 Your own voice channel',
       value: `Join <#${s.jtc.lobbyChannel}> to get one. A control panel appears in its chat: lock it for you and your mates, set a limit, rename it, kick someone or hand it over. \`/vc panel\` brings the panel back.`,
     });
+  sections.push({
+    name: '⚠️ Your warnings',
+    value: '`/mywarnings` shows your own warnings and why you got them (only you see it).',
+  });
   sections.push({ name: '❓ Help', value: '`/help` lists everything you can use.' });
   return embed('info')
     .setTitle('🤖 Bot commands')

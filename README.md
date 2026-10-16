@@ -115,6 +115,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/status` | Is the music working, or is it just me? A quick private check |
 | `/rank [user]` · `/leaderboard` | Your level and XP, and the most active members |
 | `/birthday set` · `/birthday show` | Save or see your own birthday (private reply) |
+| `/mywarnings` | See your own warnings and the reason for each (private reply; says staff or automod, not which moderator) |
 | `/vc panel` · `lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel (the panel in its chat does the same with buttons) |
 | `/help` | What you can use |
 

@@ -58,7 +58,10 @@ const warn = {
     const count = db
       .prepare('SELECT COUNT(*) c FROM warnings WHERE guild_id = ? AND user_id = ?')
       .get(interaction.guildId, user.id).c;
-    const dmed = await dm(user, `You were warned in **${interaction.guild.name}**: ${reason}`);
+    const dmed = await dm(
+      user,
+      `You were warned in **${interaction.guild.name}**: ${reason}\nUse \`/mywarnings\` in the server to see all your warnings.`,
+    );
     await modLog(interaction, 'warn', 'Warn', user, reason, `\n**Total warnings:** ${count}`);
     await interaction.editReply({
       embeds: [
@@ -86,6 +89,35 @@ const warnings = {
     );
     await interaction.reply({
       embeds: [embed('warn').setTitle(`Warnings for ${user.tag}`).setDescription(lines.join('\n'))],
+      flags: MessageFlags.Ephemeral,
+    });
+  },
+};
+
+// Anyone can see their own warnings and why, privately. The moderator's name is left out on purpose
+// (it says staff or automod), so members can't single out who warned them.
+const mywarnings = {
+  data: new SlashCommandBuilder().setName('mywarnings').setDescription('See your own warnings and why you got them'),
+  async execute(interaction) {
+    const rows = db
+      .prepare('SELECT * FROM warnings WHERE guild_id = ? AND user_id = ? ORDER BY id DESC')
+      .all(interaction.guildId, interaction.user.id);
+    if (!rows.length)
+      return interaction.reply({ content: 'You have no warnings in this server. 👍', flags: MessageFlags.Ephemeral });
+    const shown = rows.slice(0, 25);
+    const lines = shown.map(
+      (r) =>
+        `\`#${r.id}\` <t:${Math.floor(r.created_at / 1000)}:d> · ${r.mod_id === interaction.client.user.id ? 'automod' : 'staff'}: ${truncate(r.reason, 150)}`,
+    );
+    await interaction.reply({
+      embeds: [
+        embed('warn')
+          .setTitle(`Your warnings (${rows.length})`)
+          .setDescription(truncate(lines.join('\n'), 4000))
+          .setFooter({
+            text: `${rows.length > shown.length ? `Showing the newest ${shown.length}. ` : ''}Think one is wrong? Open a ticket or ask a moderator, and quote its number.`,
+          }),
+      ],
       flags: MessageFlags.Ephemeral,
     });
   },
@@ -368,5 +400,5 @@ const lockdown = {
 };
 
 module.exports = {
-  commands: [warn, warnings, delwarn, timeout, untimeout, kick, ban, unban, purge, slowmode, lockdown],
+  commands: [warn, warnings, mywarnings, delwarn, timeout, untimeout, kick, ban, unban, purge, slowmode, lockdown],
 };
