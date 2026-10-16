@@ -74,9 +74,15 @@ test('only the actual owner checks versions or requests an update; check-only an
   assert.equal(requests, 0);
   i.options.getBoolean = () => false;
   i.client.music.queues.set('g', {});
+  t.mock.method(bridge, 'hostFeatures', async () => []);
   await command.execute(i);
-  assert.match(reply, /End the music session/);
+  assert.match(reply, /End the music session[\s\S]*Rerun install\.sh/, 'an older VPS updater still needs /stop');
   assert.equal(requests, 0);
+  bridge.hostFeatures.mock.mockImplementation(async () => ['song-gap']);
+  await command.execute(i);
+  assert.equal(requests, 1, 'a new VPS updater waits for the gap between songs');
+  assert.match(reply, /installs in the gap after the current song/);
+  requests = 0;
   i.client.music.queues.clear();
   await command.execute(i);
   assert.equal(requests, 1);

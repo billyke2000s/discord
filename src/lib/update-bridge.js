@@ -60,6 +60,38 @@ async function latestRelease() {
     throw Error('This release needs the manual installer.');
   return { version: manifest.tag, commit: manifest.commit };
 }
+// Can the VPS updater wait for the gap between songs? (Its heartbeat says so; older installs can't.)
+async function hostFeatures() {
+  const heartbeat = await readJson(path.join(statuses(), 'heartbeat.json')).catch(() => null);
+  return Array.isArray(heartbeat?.features) ? heartbeat.features : [];
+}
+
+// An update the VPS is holding until the current songs end, or null. Ignored when the VPS worker has
+// stopped (stale heartbeat), when it is too old, or when it is the version already running, so a
+// leftover file can never keep the music waiting.
+const PENDING_MAX_AGE_S = 20 * 60;
+async function pendingUpdate(now = Date.now() / 1000) {
+  const [pending, heartbeat] = await Promise.all([
+    readJson(path.join(statuses(), 'pending.json')).catch(() => null),
+    readJson(path.join(statuses(), 'heartbeat.json')).catch(() => null),
+  ]);
+  if (
+    !pending ||
+    pending.schema !== 1 ||
+    !Number.isFinite(pending.since) ||
+    now - pending.since > PENDING_MAX_AGE_S ||
+    pending.since > now + 5 ||
+    !heartbeat ||
+    heartbeat.enabled !== true ||
+    !Number.isFinite(heartbeat.at) ||
+    now - heartbeat.at > 60
+  )
+    return null;
+  const version = typeof pending.version === 'string' ? pending.version.slice(0, 80) : null;
+  if (version && version === process.env.BOT_BUILD_VERSION) return null;
+  return { version, since: pending.since };
+}
+
 async function status() {
   return readJson(path.join(statuses(), 'result.json'));
 }
@@ -104,6 +136,8 @@ function resultText(result) {
   const messages = {
     updated: `Update completed and passed health checks. Installed: ${result.current || 'see /update check-only:true'}.`,
     current: `Already on the latest release: ${result.current || result.latest || 'current'}.`,
+    waiting:
+      'Music is playing, so the update installs in the gap after the current song (within 10 minutes). The music then carries on with the next song.',
     deferred: 'Update deferred because a music session is active. Use /stop, then /update again.',
     disabled: 'The host updater is disabled. Enable it on the VPS first.',
     busy: 'Another installation/update is running. Try /update again later.',
@@ -140,6 +174,17 @@ function start(client) {
   poll();
   const timer = setInterval(poll, 15000);
   timer.unref();
-  return () => clearInterval(timer);
+  // Tell the music whether an update is waiting for the gap between songs (a local file read).
+  const syncPending = () =>
+    pendingUpdate()
+      .catch(() => null)
+      .then((p) => client.music?.setUpdatePending?.(p));
+  syncPending();
+  const pendingTimer = setInterval(syncPending, 5000);
+  pendingTimer.unref();
+  return () => {
+    clearInterval(timer);
+    clearInterval(pendingTimer);
+  };
 }
-module.exports = { latestRelease, status, request, resultText, start };
+module.exports = { latestRelease, status, request, resultText, start, hostFeatures, pendingUpdate };

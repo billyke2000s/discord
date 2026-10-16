@@ -11,7 +11,9 @@ RUN npm ci --omit=dev
 FROM node:22.22.2-bookworm-slim
 ARG BUILD_VERSION=development
 ARG BUILD_COMMIT=development
-ENV BOT_BUILD_VERSION=$BUILD_VERSION BOT_BUILD_COMMIT=$BUILD_COMMIT
+# JSON list of what changed since the previous release, shown when music resumes after an update
+ARG BUILD_NOTES=[]
+ENV BOT_BUILD_VERSION=$BUILD_VERSION BOT_BUILD_COMMIT=$BUILD_COMMIT BOT_BUILD_NOTES="$BUILD_NOTES"
 # fonts for the captcha image (@napi-rs/canvas has no built-in fonts)
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

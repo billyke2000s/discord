@@ -34,6 +34,10 @@ def validate_request(data, now=None):
     return data
 
 
+# Request states the worker keeps working on in later runs.
+IN_PROGRESS = ('updating', 'waiting')
+
+
 def write_status(path, data):
     updater.atomic_write(path, json.dumps(data), mode=0o644)  # No secrets; bot mount is read-only.
 
@@ -76,7 +80,31 @@ def process(directory):
         enabled = read_json(Path('auto-update.json')).get('enabled') is True
     except FileNotFoundError:
         enabled = False
-    write_status(status_dir / 'heartbeat.json', {'schema': 1, 'at': time.time(), 'enabled': enabled})
+    # 'song-gap': this worker finishes updates that wait for the gap between songs (see update.py).
+    write_status(status_dir / 'heartbeat.json',
+                 {'schema': 1, 'at': time.time(), 'enabled': enabled, 'features': ['song-gap']})
+    if not handle_request(directory, status_dir, enabled):
+        run_waiting_update(directory, enabled)
+
+
+# An update waiting for a song gap that no Discord request is following (the daily timer started it):
+# retry it every run until it goes in.
+def run_waiting_update(directory, enabled):
+    if not enabled:
+        updater.clear_pending()  # turned off while waiting: let the music carry on normally
+        return
+    if not updater.PENDING.exists() or not updater.gap_reached():
+        return
+    try:
+        updater.main(['--directory', str(directory), '--apply'])
+    except BlockingIOError:
+        pass  # another deployment holds the lock
+    except Exception as error:
+        print(f'Waiting update failed: {type(error).__name__}', flush=True)
+
+
+# Returns True when a Discord request was handled this run (so nothing else runs).
+def handle_request(directory, status_dir, enabled):
     request_path = Path('updates/requests/request.json')
     status_path = status_dir / 'result.json'
     try:
@@ -88,40 +116,47 @@ def process(directory):
         if not isinstance(raw, dict):
             raise ValueError('Invalid request')
         if previous and raw.get('id') == previous.get('id'):
-            if previous.get('state') != 'updating':
-                return
+            if previous.get('state') not in IN_PROGRESS:
+                return False
             request = {k: previous[k] for k in ['id', 'guildId', 'ownerId', 'createdAt']}
         else:
             request = validate_request(raw)
     except FileNotFoundError:
         # A worker killed during deployment must reconcile/report on its next run.
-        if not previous or previous.get('state') != 'updating':
-            return
+        if not previous or previous.get('state') not in IN_PROGRESS:
+            return False
         request = {k: previous[k] for k in ['id', 'guildId', 'ownerId', 'createdAt']}
     except (ValueError, OSError):
         print('Ignoring invalid Discord update request', flush=True)
-        return
-    if previous and request['id'] == previous.get('id') and previous.get('state') != 'updating':
-        return
+        return False
+    if previous and request['id'] == previous.get('id') and previous.get('state') not in IN_PROGRESS:
+        return False
+    waiting = bool(previous and request['id'] == previous.get('id') and previous.get('state') == 'waiting')
     result = {**request, 'schema': 1, 'state': 'checking', 'at': time.time()}
     if not enabled:
         write_status(status_path, {**result, 'state': 'disabled'})
-        return
+        return True
+    if waiting and not updater.gap_reached():
+        return True  # still waiting for the song to end; checked again in 15 seconds
     try:
-        verify_owner(request)  # Independent host verification, not just slash visibility.
+        if not waiting:  # already verified when the request first arrived
+            verify_owner(request)  # Independent host verification, not just slash visibility.
         release = updater.latest_release()
         state = updater.container_state()
         result.update(current=installed_version(state), latest=release['version'])
-        write_status(status_path, {**result, 'state': 'updating'})
+        if not waiting:
+            write_status(status_path, {**result, 'state': 'updating'})
         outcome = updater.main(['--directory', str(directory), '--apply'])
         current = installed_version(updater.container_state())
         write_status(status_path, {**result, 'state': outcome, 'current': current, 'at': time.time()})
     except BlockingIOError:
-        write_status(status_path, {**result, 'state': 'busy', 'at': time.time()})
+        if not waiting:
+            write_status(status_path, {**result, 'state': 'busy', 'at': time.time()})
     except Exception as error:
         # No tokens, env contents, arbitrary commands or exception strings enter Discord.
         print(f'Discord update request failed: {type(error).__name__}', flush=True)
         write_status(status_path, {**result, 'state': 'failed', 'at': time.time()})
+    return True
 
 
 if __name__ == '__main__':

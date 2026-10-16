@@ -301,6 +301,12 @@ const play = {
     const vc = interaction.member.voice?.channel;
     if (!vc) return interaction.reply(eph('Join a voice channel first.'));
     const existing = music.get(interaction.guildId);
+    if (!existing && music.updatePending)
+      return interaction.reply(
+        eph(
+          'A bot update is being installed between songs right now. The music comes back in about a minute: try again then.',
+        ),
+      );
     if (existing && existing.voiceChannelId !== vc.id)
       return interaction.reply(eph(`I'm already playing in <#${existing.voiceChannelId}>. Join that channel.`));
     const perms = vc.permissionsFor(interaction.guild.members.me);

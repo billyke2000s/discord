@@ -93,3 +93,76 @@ class UpdateTests(unittest.TestCase):
                 self.assertEqual((directory / '.failed-update').read_text(), IMAGE)
             finally:
                 update.os.chdir(previous)
+
+
+class SongGapTests(unittest.TestCase):
+    """While music plays, an update waits for the gap between songs (at most WAIT_MAX)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = Path.cwd()
+        update.os.chdir(self.temp.name)
+        self.release = {'image': IMAGE, 'version': 'v-new', 'commit': 'c' * 40}
+
+    def tearDown(self):
+        update.os.chdir(self.previous)
+        self.temp.cleanup()
+
+    def test_no_music_goes_ahead_without_marking_anything(self):
+        self.assertTrue(update.music_gap({'sessions': 0}, self.release, now=100))
+        self.assertFalse(update.PENDING.exists())
+
+    def test_music_marks_the_update_as_waiting_until_the_gap_or_the_time_limit(self):
+        self.assertFalse(update.music_gap({'sessions': 1}, self.release, now=100))
+        pending = update.read_pending()
+        self.assertEqual((pending['image'], pending['version'], pending['since']), (IMAGE, 'v-new', 100))
+        self.assertEqual(update.PENDING.stat().st_mode & 0o777, 0o644, 'the bot must be able to read it')
+        self.assertFalse(update.music_gap({'sessions': 1}, self.release, now=100 + update.WAIT_MAX - 1))
+        self.assertEqual(update.read_pending()['since'], 100, 'waiting does not restart the clock')
+        self.assertTrue(update.music_gap({'sessions': 1}, self.release, now=100 + update.WAIT_MAX))
+        newer = {**self.release, 'image': IMAGE[:-1] + 'b', 'version': 'v-newer'}
+        self.assertFalse(update.music_gap({'sessions': 1}, newer, now=100 + update.WAIT_MAX))
+        self.assertEqual(update.read_pending()['version'], 'v-newer')
+
+    def test_gap_check_is_local_and_cheap(self):
+        self.assertTrue(update.gap_reached(now=100), 'nothing waiting')
+        update.music_gap({'sessions': 1}, self.release, now=100)
+        with patch.object(update, 'compose', return_value='{"sessions": 1}') as compose:
+            self.assertFalse(update.gap_reached(now=200))
+        with patch.object(update, 'compose', return_value='{"sessions": 0}'):
+            self.assertTrue(update.gap_reached(now=200))
+        with patch.object(update, 'compose') as compose:
+            self.assertTrue(update.gap_reached(now=100 + update.WAIT_MAX))
+            compose.assert_not_called()
+
+    def test_waiting_apply_stops_before_any_change_and_errors_clear_the_wait(self):
+        state = {'Config': {'Image': IMAGE[:-1] + 'f'}}
+        with patch.object(update, 'compose', return_value='{"sessions": 2}'), patch.object(update, 'run') as run:
+            self.assertEqual(update.apply(Path(self.temp.name), self.release, state, Path('.failed-update')), 'waiting')
+            run.assert_not_called()
+        self.assertTrue(update.PENDING.exists())
+        update.clear_pending()
+        self.assertFalse(update.PENDING.exists())
+        update.clear_pending()  # clearing twice is fine
+
+
+class SongGapDeployTests(unittest.TestCase):
+    def test_waiting_marker_stays_through_the_deployment_and_is_cleared_after(self):
+        with tempfile.TemporaryDirectory() as folder:
+            previous = Path.cwd()
+            update.os.chdir(folder)
+            try:
+                Path('.env').write_text('BOT_IMAGE=' + IMAGE[:-1] + 'f\n')
+                Path('docker-compose.yml').write_text('services: {}\n')
+                Path('backups').mkdir()
+                release = {'image': IMAGE, 'version': 'v-new'}
+                update.music_gap({'sessions': 1}, release, now=1)  # waited since t=1, long ago
+                seen = []
+                with patch.object(update, 'compose', return_value='{"sessions": 0}'), patch.object(update, 'run'), \
+                        patch.object(update, 'deploy', side_effect=lambda *a: seen.append(update.PENDING.exists())):
+                    state = {'Config': {'Image': IMAGE[:-1] + 'f'}}
+                    self.assertEqual(update.apply(Path(folder), release, state, Path('.failed-update')), 'updated')
+                self.assertEqual(seen, [True], 'still marked while the new bot starts')
+                self.assertFalse(update.PENDING.exists(), 'cleared once installed')
+            finally:
+                update.os.chdir(previous)
