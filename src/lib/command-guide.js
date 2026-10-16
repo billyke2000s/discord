@@ -11,6 +11,7 @@ function guideEmbed(s) {
       value:
         '`/play` a song name, or a YouTube, Spotify, SoundCloud, Twitch, Vimeo or Bandcamp link (playlists too)\n' +
         '`/queue` see what’s coming up · `/nowplaying` bring the music panel back\n' +
+        '`/lyrics` the words of the song, only for you, following along as it plays\n' +
         '`/skip` · `/stop` vote to skip the song or stop the music\n' +
         'The panel’s buttons vote to go back, skip, stop or shuffle. Votes need more than half of the people listening.',
     },

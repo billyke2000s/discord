@@ -20,7 +20,7 @@ const help = {
       {
         name: '🎵 Music',
         value:
-          '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back · `/status` checks whether music is working or down\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
+          '`/play` (song name, YouTube or Spotify link/playlist) · `/queue` · `/nowplaying` brings the panel back · `/lyrics` the words, privately, following the song · `/status` checks whether music is working or down\nThe panel (in the voice channel’s chat) has vote back, skip, stop and shuffle, and a queue with page arrows. Votes need more than half of the people in the channel.',
       },
       {
         name: '🔊 Your voice channel',

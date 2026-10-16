@@ -114,6 +114,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 | `/nowplaying` | Bring the music panel back to the bottom |
 | `/status` | Is the music working, or is it just me? A quick private check |
 | `/rank [user]` · `/leaderboard` | Your level and XP, and the most active members |
+| `/lyrics` | Lyrics of the song playing now, private, following along (also the 📝 button on the music panel) |
 | `/birthday set` · `/birthday show` | Save or see your own birthday (private reply) |
 | `/vc panel` · `lock` · `unlock` · `limit` · `rename` · `kick` · `transfer` | Control your own join-to-create channel (the panel in its chat does the same with buttons) |
 | `/help` | What you can use |
@@ -155,6 +156,7 @@ People who haven't verified only see ✅・verify. Members see everything except
 - **Spotify:** the bot reads the public Spotify page and plays each song from YouTube. **Spotify only shows the first 100 songs of a playlist**, and since February 2026 its official API doesn't list other people's playlists, so the bot can't get past 100. It tells you when this happens. For bigger playlists, copy the playlist to YouTube Music (free tools such as TuneMyMusic or Soundiiz do this) and `/play` the YouTube Music link, which loads up to 2,000 songs. Private playlists don't work, and now and then a different recording is picked; the panel shows which YouTube video is playing so you can spot it.
 - **YouTube:** uses the throwaway account's login, a patched YouTube client and the `yt-cipher` helper.
 - Volume is set by `DEFAULT_VOLUME` in `.env`.
+- **Lyrics:** when a song has timed lyrics, the panel shows the line being sung (it updates every 5 seconds, so it can lag a little behind the singing). 📝 Lyrics or `/lyrics` opens a private view of about 15 lines with the current one in bold, following the song (and the next songs) for up to 14 minutes. Lyrics come from [LRCLIB](https://lrclib.net), a free community database: most well-known songs are there, but messy YouTube titles sometimes don't match, and then you get a web search link instead. Lyrics belong to their writers, which is why the full text is only ever shown privately. To turn lyrics off completely, add `LYRICS=off` to `.env` and restart.
 
 More detail: [playlist behaviour](docs/PLAYLIST_STARTUP.md).
 
