@@ -1,11 +1,12 @@
 // Per-guild music queue on top of Shoukaku (Lavalink client), plus the self-updating music panel.
 const { Shoukaku, Connectors } = require('shoukaku');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits: P } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits: P, escapeMarkdown } = require('discord.js');
 const { embed, fmtDuration, truncate, isBotAdmin } = require('./util');
 const spotify = require('./spotify');
 const { randomBytes } = require('node:crypto');
 const { youtubePlaylist, bootstrapVideo, withoutBootstrap } = require('./playlist');
 const { AudioMonitor } = require('./audio-monitor');
+const lyrics = require('./lyrics');
 
 const SAVE_EVERY_MS = 5_000; // save queue changes within 5 s
 const SAVE_POSITION_MS = 30_000; // and the song position at least every 30 s while playing
@@ -220,6 +221,7 @@ class GuildQueue {
       this.votes.previous.clear();
       this.votes.shuffle.clear();
       this.postPanel();
+      this.loadLyrics(this.current);
     });
     player.on('end', (e) => {
       // 'replaced' = we called playTrack over it; 'cleanup' = player destroyed. Don't advance on those.
@@ -257,6 +259,36 @@ class GuildQueue {
   position() {
     const { base, at } = this.clock;
     return this.player.paused ? base : base + (Date.now() - at);
+  }
+
+  // Lyrics for a queue entry (looked up once; null if none or the lookup failed). Never throws.
+  lyricsFor(track) {
+    if (!track || track.info?.isStream || !this.manager.findLyrics) return Promise.resolve(null);
+    if (!track.lyricsTask)
+      track.lyricsTask = Promise.resolve()
+        .then(() => this.manager.findLyrics(track))
+        .catch((e) => {
+          console.warn('[lyrics]', truncate(e.message, 200));
+          delete track.lyricsTask; // try again next time it's asked for
+          return null;
+        });
+    return track.lyricsTask;
+  }
+
+  // Song started: fetch its lyrics and put the current line on the panel.
+  async loadLyrics(track) {
+    const found = await this.lyricsFor(track);
+    if (this.destroyed || this.current !== track) return;
+    track.lyrics = found;
+    if (found?.synced) this.refreshPanel();
+  }
+
+  // The synced line being sung right now, or null.
+  currentLyric() {
+    const lines = this.current?.lyrics?.synced;
+    if (!lines) return null;
+    const i = lyrics.indexAt(lines, this.position());
+    return i < 0 ? '♪' : lines[i].text || '♪';
   }
 
   async setPaused(paused) {
@@ -360,6 +392,7 @@ class GuildQueue {
       previous = this.voteStatus('previous'),
       shuffle = this.voteStatus('shuffle');
     const paused = this.player.paused;
+    const lyric = this.currentLyric();
     // Spotify songs: show which YouTube upload is really playing, so a wrong match is easy to spot.
     const pf = t.playedFrom,
       pfUrl = safeUrl(pf?.uri);
@@ -372,7 +405,9 @@ class GuildQueue {
       .setTitle(truncate(t.info.title, 250))
       .setURL(safeUrl(t.info.uri))
       .setThumbnail(safeUrl(t.info.artworkUrl))
-      .setDescription(`${t.info.author || ''}${from}\n\n${paused ? '⏸ **Paused**\n' : ''}${time}`)
+      .setDescription(
+        `${t.info.author || ''}${from}\n\n${paused ? '⏸ **Paused**\n' : ''}${time}${lyric ? `\n🎤 *${escapeMarkdown(truncate(lyric, 120))}*` : ''}`,
+      )
       .addFields(
         { name: 'Requested by', value: `<@${t.requester}>`, inline: true },
         { name: 'Volume', value: `${this.volume}%`, inline: true },
@@ -408,7 +443,10 @@ class GuildQueue {
         .setDisabled(this.tracks.length < 2),
       new ButtonBuilder().setCustomId('music:queue').setEmoji('📜').setLabel('Queue').setStyle(ButtonStyle.Secondary),
     );
-    return { embeds: [e], components: [row1] };
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('music:lyrics').setEmoji('📝').setLabel('Lyrics').setStyle(ButtonStyle.Secondary),
+    );
+    return { embeds: [e], components: [row1, row2] };
   }
 
   // New song: delete the old panel and post a fresh one at the bottom of the chat.
@@ -587,6 +625,8 @@ class GuildQueue {
         if (this.destroyed) break;
         await this.prepare(track);
       }
+      // The next song's lyrics, so its panel line shows from the first second.
+      if (!this.destroyed && this.tracks[0]?.encoded) this.lyricsFor(this.tracks[0]);
     } finally {
       this.prefetching = false;
     }
@@ -822,6 +862,8 @@ class MusicManager {
     this.creating = new Map(); // guildId -> promise, so two quick /plays don't join twice
     this.playRequests = new Map();
     this.searchPrefix = process.env.SEARCH_PREFIX || 'ytsearch';
+    // LYRICS=off in .env turns lyrics off entirely (no requests to LRCLIB).
+    this.findLyrics = process.env.LYRICS === 'off' ? null : (track) => lyrics.lookup(track);
     this.nodeOptions = {
       name: 'main',
       url: `${process.env.LAVALINK_HOST || 'localhost'}:${process.env.LAVALINK_PORT || 2333}`,

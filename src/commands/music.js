@@ -5,9 +5,11 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  escapeMarkdown,
 } = require('discord.js');
 const { embed, fmtDuration, truncate } = require('../lib/util');
 const { isStaff } = require('../lib/music');
+const lyricsLib = require('../lib/lyrics');
 
 const eph = (content) => ({ content, flags: MessageFlags.Ephemeral });
 
@@ -153,6 +155,139 @@ async function queuePage(i, suffix) {
     });
   return i.update(queuePayload(q, i.user.id, Number(match[3])));
 }
+
+// --- lyrics (private, follows the song) ------------------------------------
+const LYRICS_LIVE_MS = 14 * 60_000; // Discord lets the bot edit a private reply for 15 minutes
+const LYRICS_EVERY_MS = 4_000;
+const LYRICS_LINES = 15; // lines shown at once
+const LYRICS_BEFORE = 3; // of which this many already sung
+const LYRICS_MAX_LIVE = 25; // live views at once across the bot; more get a still view
+const liveLyrics = new Map(); // guildId:userId -> stop()
+
+// The private lyrics view for `track` at the queue's current position. `key` changes only when the
+// view would look different, so unchanged views aren't re-sent.
+function lyricsView(q, track, found, { ended = false } = {}) {
+  const name = truncate(track.info.title, 80);
+  const trackKey = `${q.sessionId}:${track.info.identifier || track.info.uri || track.info.title}`;
+  const tail = ended ? ' · Stopped following the song: run /lyrics again' : '';
+  if (!found) {
+    return {
+      key: `${trackKey}:none`,
+      payload: {
+        embeds: [
+          embed('grey')
+            .setTitle('🎤 Lyrics')
+            .setDescription(`No lyrics found for **${escapeMarkdown(name)}**.`)
+            .setFooter({ text: `Only you can see this${tail}` }),
+        ],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setStyle(ButtonStyle.Link)
+              .setLabel('Search the web')
+              .setURL(lyricsLib.searchUrl(track)),
+          ),
+        ],
+      },
+    };
+  }
+  const title = truncate(`🎤 ${found.title || track.info.title}${found.artist ? ` — ${found.artist}` : ''}`, 250);
+  let description, key, note;
+  if (found.instrumental && !found.synced && !found.plain) {
+    description = '🎹 Instrumental: no lyrics.';
+    key = `${trackKey}:inst`;
+    note = '';
+  } else if (found.synced) {
+    const lines = found.synced;
+    const at = lyricsLib.indexAt(lines, q.position());
+    const start = Math.max(0, Math.min(at - LYRICS_BEFORE, lines.length - LYRICS_LINES));
+    description = lines
+      .slice(start, start + LYRICS_LINES)
+      .map((l, n) => {
+        const text = escapeMarkdown(truncate(l.text || '♪', 200));
+        return start + n === at ? `**▶ ${text}**` : text;
+      })
+      .join('\n');
+    if (at < 0) description = `*♪ starting…*\n${description}`;
+    key = `${trackKey}:${at}`;
+    note = ' · Synced';
+  } else {
+    description = escapeMarkdown(found.plain);
+    key = `${trackKey}:plain`;
+    note = ' · Not synced for this song';
+  }
+  return {
+    key: `${key}${ended ? ':end' : ''}`,
+    payload: {
+      embeds: [
+        embed('info')
+          .setTitle(title)
+          .setDescription(truncate(description, 4000))
+          .setFooter({ text: `Only you can see this · Lyrics from LRCLIB${note}${tail}` }),
+      ],
+      components: [],
+    },
+  };
+}
+
+// /lyrics and the panel's 📝 button: a private view that follows the song (and the next songs) for 14 minutes.
+async function openLyrics(i) {
+  const music = i.client.music;
+  let q = music.get(i.guildId);
+  if (!q?.current) return i.reply(eph('Nothing is playing.'));
+  if (!music.findLyrics) return i.reply(eph('Lyrics are turned off on this bot.'));
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  const id = `${i.guildId}:${i.user.id}`;
+  liveLyrics.get(id)?.(); // one live view per person: the newest replaces the old
+  let track = q.current;
+  let found = await q.lyricsFor(track);
+  let view = lyricsView(q, track, found);
+  await i.editReply(view.payload);
+  if (liveLyrics.size >= LYRICS_MAX_LIVE) return;
+
+  const started = Date.now();
+  let last = view.key,
+    busy = false;
+  const stop = () => {
+    clearInterval(timer);
+    if (liveLyrics.get(id) === stop) liveLyrics.delete(id);
+  };
+  const timer = setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      q = music.get(i.guildId);
+      if (!q?.current) {
+        stop();
+        return await i.editReply({ content: '⏹ The music stopped.', embeds: [], components: [] });
+      }
+      if (q.current !== track) {
+        track = q.current;
+        found = await q.lyricsFor(track);
+      }
+      const ended = Date.now() - started >= LYRICS_LIVE_MS;
+      view = lyricsView(q, track, found, { ended });
+      if (view.key !== last) {
+        last = view.key;
+        await i.editReply(view.payload);
+      }
+      if (ended) stop();
+    } catch {
+      stop(); // dismissed, expired or Discord refused: nothing more to update
+    } finally {
+      busy = false;
+    }
+  }, LYRICS_EVERY_MS);
+  timer.unref?.();
+  liveLyrics.set(id, stop);
+}
+
+const lyricsCommand = {
+  data: new SlashCommandBuilder()
+    .setName('lyrics')
+    .setDescription('Lyrics of the song playing now, only for you, following along as it plays'),
+  execute: openLyrics,
+};
 
 const play = {
   data: new SlashCommandBuilder()
@@ -308,6 +443,7 @@ const components = {
     const q = await needQueue(i);
     if (q) await doVote(i, q, 'shuffle');
   },
+  'music:lyrics': openLyrics,
   'music:queue': async (i) => {
     const q = i.client.music.get(i.guildId);
     if (!q?.current) return i.reply(eph('Queue is empty.'));
@@ -318,9 +454,11 @@ const components = {
 };
 
 module.exports = {
-  commands: [play, skip, stop, queue, nowplaying],
+  commands: [play, skip, stop, queue, nowplaying, lyricsCommand],
   components,
   prefixComponents: { 'music:queuepage:': queuePage },
   queueEmbed,
   queuePayload,
+  lyricsView,
+  _liveLyrics: liveLyrics,
 };
