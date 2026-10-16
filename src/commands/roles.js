@@ -38,6 +38,10 @@ function blockedReason(role) {
   if (role.managed || role.id === role.guild.id) return 'it is a bot/integration role or @everyone';
   if (role.id === s.verify?.memberRole) return 'it is the verification Member role (that would skip the captcha)';
   if (role.id === s.tickets?.staffRole) return 'it is the Staff role';
+  // Display roles with no permissions, but handing them out would let anyone pose as the owner
+  // or wear the birthday crown on any day.
+  if (role.id === s.ownerRole) return 'it is the Owner display role';
+  if (role.id === s.birthdayRole) return 'it is the Birthday role (the bot gives it on birthdays)';
   if (POWERS.some((p) => role.permissions.has(p))) return 'it has moderator/admin permissions';
   return null;
 }

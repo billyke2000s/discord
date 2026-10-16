@@ -48,6 +48,12 @@ async function start(interaction) {
       flags: MessageFlags.Ephemeral,
     });
 
+  const wait = captcha.lockedFor(interaction.guildId, interaction.user.id);
+  if (wait)
+    return interaction.reply({
+      content: `Too many wrong tries. You can try again <t:${Math.ceil((Date.now() + wait) / 1000)}:R>.`,
+      flags: MessageFlags.Ephemeral,
+    });
   const png = captcha.newChallenge(interaction.guildId, interaction.user.id);
   // "New image" is clicked on our own ephemeral message: edit it in place instead of stacking new ones
   const isRefresh = interaction.message?.flags?.has(MessageFlags.Ephemeral);
@@ -101,7 +107,7 @@ async function submit(interaction) {
     return interaction.reply({ content: 'That code expired. Click **New image**.', flags: MessageFlags.Ephemeral });
   if (result === 'locked') {
     await interaction.reply({
-      content: 'Too many wrong tries. Click **New image** to start again.',
+      content: `Too many wrong tries. You can try again in ${captcha.LOCKOUT_MS / 60_000} minutes.`,
       flags: MessageFlags.Ephemeral,
     });
     return log(

@@ -162,7 +162,7 @@ More detail: [playlist behaviour](docs/PLAYLIST_STARTUP.md).
 
 ## Verification, moderation and protection
 
-- **Captcha:** a 5-character image code, 3 tries per image, 5 minutes per image.
+- **Captcha:** a 5-character image code, 5 minutes per image. After 3 wrong tries the person must wait 5 minutes before getting a new image.
 - **New accounts** (under 3 days old) are flagged in 📋・mod-logs.
 - **Scam filter:**
   - A link on **both** scam lists is deleted, the sender gets a 24 h timeout and a DM saying their account is probably hacked.
@@ -182,7 +182,7 @@ More detail: [playlist behaviour](docs/PLAYLIST_STARTUP.md).
   | Sending too fast | 5 messages within 5 seconds |
 
   Each rule can **delete** the message, delete and add a **warning** (shows in `/warnings`), or delete and **time out** (10 minutes by default). The member gets a DM and every action goes to 📋・mod-logs. Edited messages are checked too. Staff with Manage Messages, the owner, and any role or channel you exempt with `/automod exempt` are skipped. Try text safely with `/automod test` before switching a rule on; change numbers with `/automod limits`.
-- **Button roles** refuse the Member, Staff and any role with mod or admin powers, checked again on every click.
+- **Button roles** refuse the Member, Staff, Owner and Birthday roles and any role with mod or admin powers, checked again on every click.
 - **`/lockdown`** stays on through restarts until you turn it off or its timer ends.
 - **Self-promo:** posts from people who joined less than 7 days ago are removed and they're told when they can post.
 - **Tickets:** only the member who opened a ticket, staff, or someone with Manage Channels can close it. Closing posts a text transcript (up to the last 1,000 messages) to 📋・mod-logs first. If the transcript can't be saved (for example no log channel is set), the ticket **stays open** and staff get a *Close without transcript* button instead.

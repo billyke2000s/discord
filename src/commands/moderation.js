@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { db } = require('../lib/db');
-const { embed, log, canModerate, parseDuration, truncate } = require('../lib/util');
+const { embed, log, canModerate, isOwner, parseDuration, truncate } = require('../lib/util');
 const antiRaid = require('../lib/antiraid');
 
 const P = PermissionFlagsBits;
@@ -106,6 +106,19 @@ const delwarn = {
     const target = id
       ? db.prepare('SELECT user_id FROM warnings WHERE guild_id = ? AND id = ?').get(interaction.guildId, id)?.user_id
       : user.id;
+    // Same rank rule as /warn: you can't clear warnings of yourself or of someone at or above you.
+    // Members who have left can still have their warnings cleared.
+    // (The bot's own rank doesn't matter here: deleting a database row needs no Discord permission.)
+    const member = target ? await interaction.guild.members.fetch(target).catch(() => null) : null;
+    const err =
+      member &&
+      (member.id === interaction.user.id
+        ? 'You cannot clear your own warnings.'
+        : !isOwner(interaction.user, interaction.guild) &&
+            interaction.member.roles.highest.comparePositionTo(member.roles.highest) <= 0
+          ? 'That member has an equal or higher role than you.'
+          : null);
+    if (err) return interaction.reply({ content: err, flags: MessageFlags.Ephemeral });
     const r = id
       ? db.prepare('DELETE FROM warnings WHERE guild_id = ? AND id = ?').run(interaction.guildId, id)
       : db.prepare('DELETE FROM warnings WHERE guild_id = ? AND user_id = ?').run(interaction.guildId, user.id);

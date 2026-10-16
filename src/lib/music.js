@@ -178,7 +178,8 @@ class GuildQueue {
     this.voiceChannelId = voiceChannelId;
     this.tracks = [];
     this.current = null;
-    this.idleTimer = null;
+    this.idleTimer = null; // queue empty: leave after IDLE_LEAVE_MS
+    this.aloneTimer = null; // voice channel empty: leave after IDLE_LEAVE_MS (separate, see checkAlone)
     this.destroyed = false;
     this.transition = null;
     this.revision = 0;
@@ -592,9 +593,9 @@ class GuildQueue {
   }
 
   importRemaining(loader, first, requester, report) {
-    // Keep a short track's empty queue alive until its import finishes.
-    // Do not clear the empty-voice-channel leave timer when listeners departed.
-    if (!this.current && this.listeners().size) this.clearIdle();
+    // Keep a short track's empty queue alive until its import finishes. The separate
+    // empty-voice-channel timer (aloneTimer) is unaffected, so leaving still ends the session.
+    if (!this.current) this.clearIdle();
     const task = Promise.resolve().then(async () => {
       try {
         const result = await loader();
@@ -768,6 +769,24 @@ class GuildQueue {
     this.idleTimer = null;
   }
 
+  // Everyone left the voice channel. Starts the countdown once: later voice events anywhere in the
+  // server (mutes, other channels) must not restart it, and a new song starting must not cancel it.
+  startAloneTimer() {
+    if (this.aloneTimer || this.destroyed) return;
+    this.aloneTimer = setTimeout(() => {
+      this.aloneTimer = null;
+      if (this.destroyed || this.listeners().size) return;
+      this.send(embed('grey').setDescription('Everyone left, so I did too.'));
+      this.destroy();
+    }, IDLE_LEAVE_MS);
+    this.aloneTimer.unref?.();
+  }
+
+  clearAloneTimer() {
+    if (this.aloneTimer) clearTimeout(this.aloneTimer);
+    this.aloneTimer = null;
+  }
+
   // keep = true leaves the saved session in place so it can resume (see suspend()).
   async destroy({ keep = false, reason } = {}) {
     if (this.destroyed) return;
@@ -779,6 +798,7 @@ class GuildQueue {
     this.tracks.length = 0;
     this.history.length = 0;
     this.clearIdle();
+    this.clearAloneTimer();
     this.manager.queues.delete(this.guildId);
     if (!keep) {
       try {
@@ -1084,17 +1104,10 @@ class MusicManager {
   checkAlone(guild) {
     const q = this.queues.get(guild.id);
     if (!q) return;
-    const humans = q.listeners().size;
-    if (humans === 0) {
-      q.clearIdle();
-      q.idleTimer = setTimeout(() => {
-        if (q.listeners().size === 0) {
-          q.send(embed('grey').setDescription('Everyone left, so I did too.'));
-          q.destroy();
-        }
-      }, IDLE_LEAVE_MS);
+    if (q.listeners().size === 0) {
+      q.startAloneTimer();
     } else {
-      if (q.current) q.clearIdle();
+      q.clearAloneTimer();
       q.recheckVotes();
     }
   }
