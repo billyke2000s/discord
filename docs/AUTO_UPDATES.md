@@ -80,7 +80,9 @@ If an interrupted-update journal exists, temporarily enable the local opt-in and
 `python3 deployment/update.py --apply` to recover; the manual installer refuses to
 overwrite a pending recovery. Do not run the installer/update tools concurrently.
 
-Settings snapshots live in `backups/auto-update-<UTC timestamp>/`; online database
+Settings snapshots live in `backups/auto-update-<UTC timestamp>/` for you to inspect. Automatic
+recovery after an interrupted update restores `.env` from `.update-pending.json` in the install
+folder (root-only), never from `backups/`, which the bot container can write to. Online database
 snapshots are `backups/bot-<date>-<time>-pre-update.sqlite` (last five retained).
 Settings snapshots are retained until you remove them; monitor disk use. Backups
 contain secrets, must remain private, and should also be copied to protected off-host

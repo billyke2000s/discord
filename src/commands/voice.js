@@ -63,9 +63,12 @@ async function transfer(channel, row, userId, isBot) {
   if (isBot) return 'Bots can’t own channels.';
   // Give the new owner control in Discord first; only then record them as owner, so a failed
   // permission change can't leave the database and the channel disagreeing.
-  await channel.permissionOverwrites.edit(userId, { Connect: true, ManageChannels: true, MoveMembers: true });
+  // Owners act only through the bot (panel or /vc), never with Discord's own Manage Channel or
+  // Move Members, which would let them disconnect moderators and skip the bot's checks.
+  await channel.permissionOverwrites.edit(userId, { Connect: true, ManageChannels: null, MoveMembers: null });
   setOwner.run(userId, channel.id);
   if (row.owner_id !== userId) {
+    // Also clears these from channels made before owners stopped getting them.
     await channel.permissionOverwrites
       .edit(row.owner_id, { ManageChannels: null, MoveMembers: null })
       .catch((e) => console.error('[vc] could not remove old owner controls:', e.message));
@@ -423,8 +426,9 @@ async function handleVoiceState(oldState, newState, settings) {
   }
 }
 
-// Copy the category's permissions (so hidden/private categories stay private), then give
-// the owner and the bot control. Keyed by id so we never send duplicate overwrites.
+// Copy the category's permissions (so hidden/private categories stay private), then let the owner
+// in (even when locked) and give the bot control. The owner gets no Discord management powers:
+// lock, kick, rename, limit and hand-over all go through the bot. Keyed by id so we never send duplicate overwrites.
 function buildOverwrites(parent, ownerId, guild) {
   const map = new Map();
   for (const o of parent?.permissionOverwrites.cache.values() ?? []) {
@@ -438,7 +442,7 @@ function buildOverwrites(parent, ownerId, guild) {
     map.set(id, cur);
   };
   const P = PermissionFlagsBits;
-  give(ownerId, 1, [P.ViewChannel, P.Connect, P.ManageChannels, P.MoveMembers]);
+  give(ownerId, 1, [P.ViewChannel, P.Connect]);
   give(guild.members.me.id, 1, [P.ViewChannel, P.Connect, P.ManageChannels, P.MoveMembers]);
   return [...map.values()];
 }
@@ -472,4 +476,5 @@ module.exports = {
   sweep,
   panelPayload,
   refreshPanel,
+  buildOverwrites,
 };

@@ -160,7 +160,25 @@ test('kick and transfer from the menus', async () => {
   await t.run();
   assert.equal(db.prepare('SELECT owner_id FROM temp_vcs').get().owner_id, 'mate');
   assert.match(t.out.update.embeds[0].toJSON().description, /<@mate>/);
+  // The new owner gets in, but no Discord Manage Channel / Move Members; the old owner's are cleared too.
+  assert.equal(overwrites.get('mate').Connect, true);
+  assert.equal(overwrites.get('mate').ManageChannels, null);
+  assert.equal(overwrites.get('mate').MoveMembers, null);
+  assert.equal(overwrites.get('owner').ManageChannels, null);
+  assert.equal(overwrites.get('owner').MoveMembers, null);
   const old = press(channel, 'vcp:lock:vc1', { userId: 'owner' });
   await old.run();
   assert.match(old.out.reply.content, /Only the owner/, 'previous owner loses control');
+});
+
+test('a new channel lets its owner in but gives them no Discord management powers', () => {
+  const P = PermissionFlagsBits;
+  const guild = { members: { me: { id: 'bot' } } };
+  const list = voice.buildOverwrites(null, 'owner', guild);
+  const owner = new PermissionsBitField(list.find((o) => o.id === 'owner').allow);
+  assert.ok(owner.has([P.ViewChannel, P.Connect]));
+  assert.equal(owner.has(P.ManageChannels), false);
+  assert.equal(owner.has(P.MoveMembers), false);
+  const bot = new PermissionsBitField(list.find((o) => o.id === 'bot').allow);
+  assert.ok(bot.has([P.ManageChannels, P.MoveMembers]), 'the bot still does the actual work');
 });

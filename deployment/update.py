@@ -118,10 +118,13 @@ def recover_pending(directory):
     if not journal.exists():
         return
     saved = json.loads(journal.read_text())
-    backup = (directory / saved['backup']).resolve()
-    if not backup.is_relative_to((directory / 'backups').resolve()) or not IMAGE.fullmatch(saved['image']):
-        raise ValueError('Invalid recovery journal; inspect manually')
-    atomic_write(Path('.env'), backup.read_text())
+    # Restore only from the journal itself: it lives in the root-only install folder. The settings
+    # copy under backups/ is for people; that folder is writable by the bot container, so it is
+    # never trusted for recovery. Older journals had no 'env' and are refused.
+    if (not isinstance(saved.get('env'), str) or not IMAGE.fullmatch(saved.get('image', '')) or
+            len(re.findall(r'^BOT_IMAGE=.*$', saved['env'], re.M)) != 1):
+        raise ValueError('Invalid recovery journal; restore .env from backups/ by hand after checking it')
+    atomic_write(Path('.env'), saved['env'])
     compose('up', '-d', '--no-deps', '--no-build', 'bot')
     wait_healthy()
     atomic_write(Path('.failed-update'), saved['image'])
@@ -188,7 +191,8 @@ def main(argv=None):
         # SQLite's online backup API makes a consistent snapshot while the bot runs.
         compose('exec', '-T', 'bot', 'node', 'src/lib/backup.js', 'pre-update')
         journal = Path('.update-pending.json')
-        atomic_write(journal, json.dumps({'backup': str(backup / '.env'), 'image': image}))
+        # 0600, root-only folder: holds the settings to restore if this run is interrupted.
+        atomic_write(journal, json.dumps({'backup': str(backup / '.env'), 'image': image, 'env': original}))
         try:
             deploy(image, env_path, original)
         except Exception:

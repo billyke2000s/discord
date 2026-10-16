@@ -99,6 +99,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       const cmd = commands.get(interaction.commandName);
+      // A command removed in an update can stay in Discord's list until the next sync: answer instead of timing out.
+      if (!cmd)
+        return interaction.reply({
+          content: 'That command no longer exists. Discord may take a moment to refresh the command list.',
+          flags: MessageFlags.Ephemeral,
+        });
       // Default slash permissions are configurable in Discord; enforce the
       // command's required permissions again before performing privileged work.
       if (!hasCommandPermission(cmd, interaction.memberPermissions))
@@ -106,7 +112,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: 'You do not have permission to use this command.',
           flags: MessageFlags.Ephemeral,
         });
-      if (cmd) await cmd.execute(interaction);
+      await cmd.execute(interaction);
     } else if (interaction.isButton() || interaction.isModalSubmit() || interaction.isAnySelectMenu()) {
       const handler = findComponent(interaction.customId);
       if (handler) await handler(interaction);

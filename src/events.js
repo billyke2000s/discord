@@ -153,14 +153,15 @@ module.exports = function registerEvents(client) {
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     const s = getSettings(newState.guild.id);
     await voice.handleVoiceState(oldState, newState, s).catch((e) => console.error('[voice]', e));
-    client.music.checkAlone(newState.guild);
 
-    // bot was disconnected/moved by someone: keep music state in sync
+    // bot was disconnected/moved by someone: keep music state in sync before counting listeners,
+    // so a move into an empty channel starts the leave countdown in the right channel
     if (newState.id === client.user.id) {
       const q = client.music.get(newState.guild.id);
-      if (q && !newState.channelId) q.destroy();
-      else if (q && newState.channelId) q.voiceChannelId = newState.channelId;
+      if (q && !newState.channelId) return q.destroy();
+      if (q && newState.channelId) q.voiceChannelId = newState.channelId;
     }
+    client.music.checkAlone(newState.guild);
   });
 
   // Edited messages can have scam links added after the fact

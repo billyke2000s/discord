@@ -250,7 +250,7 @@ test('/delwarn records who deleted which warning in the mod log', async () => {
   const delwarn = moderation.commands.find((c) => c.data.name === 'delwarn');
   await delwarn.execute({
     guildId: 'g',
-    guild: {},
+    guild: { members: { fetch: async () => Promise.reject(new Error('left the server')) } },
     user: { toString: () => '<@mod>' },
     options: { getInteger: () => 7, getUser: () => null },
     reply: async (p) => {
@@ -260,6 +260,35 @@ test('/delwarn records who deleted which warning in the mod log', async () => {
   assert.match(reply.content, /Deleted 1/);
   assert.equal(logged.length, 1);
   assert.match(logged[0].e.toJSON().description, /<@u1>[\s\S]*<@mod>[\s\S]*warning #7/);
+});
+
+test('/delwarn refuses your own warnings and those of members at or above your rank', async () => {
+  const delwarn = moderation.commands.find((c) => c.data.name === 'delwarn');
+  const rank = (position) => ({ comparePositionTo: (other) => position - other.position, position });
+  const run = async ({ actorId = 'mod', actorRank, targetId, targetRank }) => {
+    logged.length = 0;
+    let reply;
+    await delwarn.execute({
+      guildId: 'g',
+      guild: {
+        ownerId: 'owner',
+        members: { fetch: async (id) => ({ id, roles: { highest: rank(targetRank) } }) },
+      },
+      user: { id: actorId, toString: () => `<@${actorId}>` },
+      member: { roles: { highest: rank(actorRank) } },
+      options: { getInteger: () => null, getUser: () => ({ id: targetId }) },
+      reply: async (p) => {
+        reply = p;
+      },
+    });
+    return reply.content;
+  };
+  assert.match(await run({ actorRank: 5, targetId: 'mod', targetRank: 5 }), /your own warnings/);
+  assert.match(await run({ actorRank: 5, targetId: 'senior', targetRank: 9 }), /equal or higher role/);
+  assert.match(await run({ actorRank: 5, targetId: 'peer', targetRank: 5 }), /equal or higher role/);
+  assert.equal(logged.length, 0);
+  assert.match(await run({ actorRank: 5, targetId: 'u1', targetRank: 1 }), /Deleted/);
+  assert.match(await run({ actorId: 'owner', actorRank: 1, targetId: 'senior', targetRank: 9 }), /Deleted/);
 });
 
 test('joining the lobby twice quickly creates only one voice channel', async () => {

@@ -55,13 +55,34 @@ class UpdateTests(unittest.TestCase):
             update.deploy(IMAGE, env, 'BOT_IMAGE=old\n', lambda: None, lambda: None)
             self.assertEqual(env.read_text(), 'BOT_IMAGE=' + IMAGE + '\n')
 
+    def test_recovery_refuses_journal_without_saved_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            (directory / 'backups' / 'saved').mkdir(parents=True)
+            (directory / 'backups' / 'saved' / '.env').write_text('BOT_IMAGE=evil\n')
+            (directory / '.env').write_text('BOT_IMAGE=new\n')
+            (directory / '.update-pending.json').write_text(update.json.dumps({'backup': 'backups/saved/.env', 'image': IMAGE}))
+            previous = Path.cwd()
+            try:
+                update.os.chdir(directory)
+                with patch.object(update, 'compose') as compose, patch.object(update, 'wait_healthy'):
+                    with self.assertRaises(ValueError):
+                        update.recover_pending(directory)
+                    compose.assert_not_called()
+                self.assertEqual((directory / '.env').read_text(), 'BOT_IMAGE=new\n')
+            finally:
+                update.os.chdir(previous)
+
     def test_interrupted_deployment_recovers_previous_image(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
             (directory / 'backups' / 'saved').mkdir(parents=True)
             (directory / 'backups' / 'saved' / '.env').write_text('BOT_IMAGE=old\n')
             (directory / '.env').write_text('BOT_IMAGE=new\n')
-            (directory / '.update-pending.json').write_text(update.json.dumps({'backup': 'backups/saved/.env', 'image': IMAGE}))
+            # A tampered copy in the bot-writable backups folder must be ignored.
+            (directory / 'backups' / 'saved' / '.env').write_text('BOT_IMAGE=evil\n')
+            (directory / '.update-pending.json').write_text(
+                update.json.dumps({'backup': 'backups/saved/.env', 'image': IMAGE, 'env': 'BOT_IMAGE=old\n'}))
             previous = Path.cwd()
             try:
                 update.os.chdir(directory)

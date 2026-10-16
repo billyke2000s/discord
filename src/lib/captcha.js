@@ -7,7 +7,9 @@ const crypto = require('node:crypto');
 const CHARS = 'ACDEFGHJKMNPQRTUVWXY34679';
 const TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
+const LOCKOUT_MS = 5 * 60 * 1000; // after MAX_ATTEMPTS wrong codes, no new image for this long
 const challenges = new Map(); // key guildId:userId -> { code, expires, attempts }
+const lockouts = new Map(); // key guildId:userId -> time the lockout ends
 
 function randomCode(len = 5) {
   let s = '';
@@ -61,7 +63,20 @@ function render(code) {
   return c.toBuffer('image/png');
 }
 
+// ms left on this member's lockout, or 0.
+function lockedFor(guildId, userId, now = Date.now()) {
+  const key = `${guildId}:${userId}`;
+  const until = lockouts.get(key) || 0;
+  if (until <= now) {
+    lockouts.delete(key);
+    return 0;
+  }
+  return until - now;
+}
+
+// A PNG of a fresh code, or null while the member is locked out (check lockedFor first).
 function newChallenge(guildId, userId) {
+  if (lockedFor(guildId, userId)) return null;
   const code = randomCode();
   challenges.set(`${guildId}:${userId}`, { code, expires: Date.now() + TTL_MS, attempts: 0 });
   return render(code);
@@ -82,6 +97,7 @@ function check(guildId, userId, answer) {
   ch.attempts++;
   if (ch.attempts >= MAX_ATTEMPTS) {
     challenges.delete(key);
+    lockouts.set(key, Date.now() + LOCKOUT_MS);
     return 'locked';
   }
   return 'wrong';
@@ -91,6 +107,7 @@ function check(guildId, userId, answer) {
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of challenges) if (v.expires < now) challenges.delete(k);
+  for (const [k, until] of lockouts) if (until <= now) lockouts.delete(k);
 }, 60_000).unref();
 
-module.exports = { newChallenge, check, MAX_ATTEMPTS };
+module.exports = { newChallenge, check, lockedFor, MAX_ATTEMPTS, LOCKOUT_MS };
